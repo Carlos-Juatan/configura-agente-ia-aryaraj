@@ -596,24 +596,28 @@ async def process_message(
                 }
 
     # --- RAG BYPASS (SHORT CIRCUIT) ---
-    # Skip RAG for simple greeting or date calculation type messages to improve speed/accuracy
+    # Skip RAG for simple greeting or known simple messages to improve speed/accuracy
     skip_rag = False
     skip_reason = None
     
-    # 1. Check if routed as SIMPLE
-    if getattr(config, 'router_enabled', False):
-        # Local complexity check for fast skip
-        is_simple = len(message.split()) < 4 or any(x in message.lower() for x in ["oi", "ola", "bom dia", "boa tarde", "obrigado", "valeu"])
-        if is_simple:
-            skip_rag = True
-            skip_reason = "Mensagem simples ou saudação (RAG Otimizado)"
-            print("⚠️ RAG Bypass: Message identified as simple/greeting.")
-
-    # 2. Check if it's a date calculation (usually doesn't need knowledge base)
-    if not skip_rag and any(x in message.lower() for x in ["data", "quinta", "sexta", "semana", "mes", "dia", "amanh"]) and len(message) < 50:
+    # 1. Heurística rápida para saudações e agradecimentos comuns
+    common_greetings = ["oi", "ola", "olá", "bom dia", "boa tarde", "boa noite", "obrigado", "valeu", "agradecido", "ok", "tchau", "até logo"]
+    clean_msg = message.lower().strip().rstrip('!.?')
+    if clean_msg in common_greetings:
         skip_rag = True
-        skip_reason = "Consulta temporal (RAG Ignorado)"
-        print("⚠️ RAG Bypass: Date-related short query detected.")
+        skip_reason = "Saudação ou agradecimento (RAG Otimizado)"
+        print(f"⚠️ RAG Bypass: Greeting detected ('{clean_msg}').")
+
+    # 2. Se o roteador estiver ativo, confiamos na classificação de complexidade do LLM
+    if not skip_rag and getattr(config, 'router_enabled', False):
+        if 'complexity' in locals() and complexity == "SIMPLE":
+            skip_rag = True
+            skip_reason = "Mensagem simples (RAG Otimizado pelo Roteador)"
+            print("⚠️ RAG Bypass: Message classified as SIMPLE by router.")
+
+    # NOTA: A verificação de "Consulta temporal" baseada em palavras como "dia", "mes", "semana" foi removida 
+    # pois causava muitos falsos positivos em perguntas legítimas (ex: "Qual o valor da diária?").
+
 
     # 1. RAG INJECTION (Hybrid Search)
     rag_context = ""

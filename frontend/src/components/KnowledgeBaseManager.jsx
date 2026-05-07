@@ -4,6 +4,8 @@ import { api } from '../api/client';
 import ExpandableField from './ExpandableField';
 import KnowledgeBaseImporter from './KnowledgeBaseImporter';
 import ConfirmModal from './ConfirmModal';
+import { USER_ROLES } from '../constants/auth';
+import { useRole } from '../hooks/useRole';
 
 /**
  * KnowledgeBaseManager Component
@@ -132,6 +134,8 @@ const KnowledgeBaseManager = ({ knowledgeBase = [], onChange, onAdd, onDelete, o
         agenticEval: true,
         parentExpansion: true
     });
+
+    const { isTeam, isManagement, isUsuarioAdmin } = useRole();
 
     const handleJsonBatchSubmit = async () => {
         try {
@@ -864,16 +868,20 @@ const KnowledgeBaseManager = ({ knowledgeBase = [], onChange, onAdd, onDelete, o
             <div className="kb-content" style={{ animation: 'fadeIn 0.4s ease-out' }}>
                 <div className="kb-quick-actions">
                     <button onClick={() => setIsAddNewModalOpen(true)} className="kb-quick-action-btn">✨ Adicionar Novo</button>
-                    <button onClick={() => setIsAddDocsModalOpen(true)} className="kb-quick-action-btn">📂 Adicionar Documentos</button>
-                    <button onClick={() => setShowMediaSelectionModal(true)} className="kb-quick-action-btn">
-                        📽️ Transcrição de Vídeo
-                    </button>
-                    <button onClick={() => {
-                        setJsonBatchInput('');
-                        setIsJsonBatchModalOpen(true);
-                    }} className="kb-quick-action-btn">
-                        📄 Upload Json
-                    </button>
+                    {isTeam && (
+                        <>
+                            <button onClick={() => setIsAddDocsModalOpen(true)} className="kb-quick-action-btn">📂 Adicionar Documentos</button>
+                            <button onClick={() => setShowMediaSelectionModal(true)} className="kb-quick-action-btn">
+                                📽️ Transcrição de Vídeo
+                            </button>
+                            <button onClick={() => {
+                                setJsonBatchInput('');
+                                setIsJsonBatchModalOpen(true);
+                            }} className="kb-quick-action-btn">
+                                📄 Upload Json
+                            </button>
+                        </>
+                    )}
                     <input
                         type="file"
                         ref={videoInputRef}
@@ -1090,8 +1098,8 @@ const KnowledgeBaseManager = ({ knowledgeBase = [], onChange, onAdd, onDelete, o
                                 </div>
 
                                 {/* Right: selection controls */}
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                                    {selectedItems.size > 0 && (
+                                 <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                    {isTeam && selectedItems.size > 0 && (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                             <div style={{ background: '#ef4444', color: 'white', padding: '6px 14px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: '800', boxShadow: '0 4px 15px rgba(239, 68, 68, 0.3)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                                 <span>{selectedItems.size}</span>
@@ -1142,10 +1150,12 @@ const KnowledgeBaseManager = ({ knowledgeBase = [], onChange, onAdd, onDelete, o
                                             </button>
                                         </div>
                                     )}
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)', cursor: 'pointer', margin: 0 }}>
-                                        <input type="checkbox" checked={hasItems && selectedItems.size === filteredItems.length} onChange={toggleSelectAll} style={{ transform: 'scale(1.2)', accentColor: '#6366f1', cursor: 'pointer' }} />
-                                        Selecionar Todos
-                                    </label>
+                                    {isTeam && (
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)', cursor: 'pointer', margin: 0 }}>
+                                            <input type="checkbox" checked={hasItems && selectedItems.size === filteredItems.length} onChange={toggleSelectAll} style={{ transform: 'scale(1.2)', accentColor: '#6366f1', cursor: 'pointer' }} />
+                                            Selecionar Todos
+                                        </label>
+                                    )}
                                 </div>
                             </div>
 
@@ -1180,17 +1190,19 @@ const KnowledgeBaseManager = ({ knowledgeBase = [], onChange, onAdd, onDelete, o
                                                 <div className="kb-item-accent-bar"></div>
 
                                                 <div style={{ position: 'absolute', top: '15px', right: '15px', zIndex: 10, display: 'flex', gap: '10px', alignItems: 'center' }}>
-                                                    {isEdited && (
+                                                    {isTeam && isEdited && (
                                                         <button onClick={() => saveItemEdits(item.originalIndex, item.id)} className="kb-save-btn-modern">
                                                             ✓ Salvar
                                                         </button>
                                                     )}
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={selectedItems.has(item.id)}
-                                                        onChange={() => toggleSelect(item.id)}
-                                                        style={{ transform: 'scale(1.2)', cursor: 'pointer', accentColor: '#6366f1' }}
-                                                    />
+                                                    {isTeam && (
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={selectedItems.has(item.id)}
+                                                            onChange={() => toggleSelect(item.id)}
+                                                            style={{ transform: 'scale(1.2)', cursor: 'pointer', accentColor: '#6366f1' }}
+                                                        />
+                                                    )}
                                                 </div>
 
                                                 <div className="kb-item-main-row">
@@ -1265,7 +1277,9 @@ const KnowledgeBaseManager = ({ knowledgeBase = [], onChange, onAdd, onDelete, o
                                                                     onMouseEnter={e => { e.target.style.background = '#6366f1'; e.target.style.color = 'white'; }}
                                                                     onMouseLeave={e => { e.target.style.background = 'rgba(99,102,241,0.1)'; e.target.style.color = '#a5b4fc'; }}
                                                                 >⤢ Ver</button>
-                                                                <button onClick={() => handleDeleteItem(item.originalIndex, item.id)} className="kb-delete-btn-modern">🗑️</button>
+                                                                {isTeam && (
+                                                                    <button onClick={() => handleDeleteItem(item.originalIndex, item.id)} className="kb-delete-btn-modern">🗑️</button>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     </div>
@@ -1615,42 +1629,44 @@ const KnowledgeBaseManager = ({ knowledgeBase = [], onChange, onAdd, onDelete, o
                                     </>
                                 ) : (
                                     <>
-                                        <button
-                                            onClick={() => {
-                                                const rawMetadata = maximizedItem.metadata_val || maximizedItem.metadata || '';
-                                                let parsedMetadata = [];
-                                                
-                                                try {
-                                                    const metaObj = typeof rawMetadata === 'string' ? JSON.parse(rawMetadata) : rawMetadata;
-                                                    if (metaObj && typeof metaObj === 'object') {
-                                                        parsedMetadata = Object.entries(metaObj).map(([key, value]) => ({
-                                                            id: Math.random().toString(36).substr(2, 9),
-                                                            key,
-                                                            value: typeof value === 'object' ? JSON.stringify(value) : String(value)
-                                                        }));
-                                                    }
-                                                } catch (e) {
-                                                    // Se não for JSON, trata como string simples se houver conteúdo
-                                                    if (rawMetadata) {
-                                                        parsedMetadata = [{ id: 'default', key: 'info', value: String(rawMetadata) }];
-                                                    }
-                                                }
+                                                {isTeam && (
+                                                    <button
+                                                        onClick={() => {
+                                                            const rawMetadata = maximizedItem.metadata_val || maximizedItem.metadata || '';
+                                                            let parsedMetadata = [];
+                                                            
+                                                            try {
+                                                                const metaObj = typeof rawMetadata === 'string' ? JSON.parse(rawMetadata) : rawMetadata;
+                                                                if (metaObj && typeof metaObj === 'object') {
+                                                                    parsedMetadata = Object.entries(metaObj).map(([key, value]) => ({
+                                                                        id: Math.random().toString(36).substr(2, 9),
+                                                                        key,
+                                                                        value: typeof value === 'object' ? JSON.stringify(value) : String(value)
+                                                                    }));
+                                                                }
+                                                            } catch (e) {
+                                                                // Se não for JSON, trata como string simples se houver conteúdo
+                                                                if (rawMetadata) {
+                                                                    parsedMetadata = [{ id: 'default', key: 'info', value: String(rawMetadata) }];
+                                                                }
+                                                            }
 
-                                                if (parsedMetadata.length === 0) {
-                                                    parsedMetadata = [{ id: Math.random().toString(36).substr(2, 9), key: '', value: '' }];
-                                                }
+                                                            if (parsedMetadata.length === 0) {
+                                                                parsedMetadata = [{ id: Math.random().toString(36).substr(2, 9), key: '', value: '' }];
+                                                            }
 
-                                                setMetadataEditorItems(parsedMetadata);
-                                                setMaximizedForm({
-                                                    question: maximizedItem.question,
-                                                    answer: maximizedItem.answer,
-                                                    category: maximizedItem.category || 'Geral',
-                                                    metadata_val: rawMetadata
-                                                });
-                                                setIsEditingMaximized(true);
-                                            }}
-                                            style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', color: '#a5b4fc', borderRadius: '10px', padding: '8px 18px', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}
-                                        >Editar</button>
+                                                            setMetadataEditorItems(parsedMetadata);
+                                                            setMaximizedForm({
+                                                                question: maximizedItem.question,
+                                                                answer: maximizedItem.answer,
+                                                                category: maximizedItem.category || 'Geral',
+                                                                metadata_val: rawMetadata
+                                                            });
+                                                            setIsEditingMaximized(true);
+                                                        }}
+                                                        style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', color: '#a5b4fc', borderRadius: '10px', padding: '8px 18px', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}
+                                                    >Editar</button>
+                                                )}
                                         <button
                                             onClick={() => setMaximizedItem(null)}
                                             style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8', borderRadius: '10px', padding: '8px 18px', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}

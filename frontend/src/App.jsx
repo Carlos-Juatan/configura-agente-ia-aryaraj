@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { USER_ROLES } from './constants/auth';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import ConfigPanel from './components/ConfigPanel';
@@ -14,6 +15,7 @@ import IntegrationsPanel from './components/IntegrationsPanel';
 import PublicChat from './components/PublicChat';
 import SharedHistory from './components/SharedHistory';
 import Login from './components/Login';
+import Register from './components/Register';
 import UserManagement from './components/UserManagement';
 import SupportDashboard from './components/SupportDashboard';
 import PublicSupportView from './components/PublicSupportView';
@@ -30,10 +32,14 @@ function App() {
     setIsAuthenticated(false);
   };
 
-  const userRole = localStorage.getItem('user_role') || 'Usuário';
-  const isSuperAdmin = userRole === 'Super Admin';
-  const isAdmin = userRole === 'Admin';
-  const isUser = userRole === 'Usuário';
+  const userRole = localStorage.getItem('user_role');
+  const isSuperAdmin = userRole === USER_ROLES.SUPERADMIN;
+  const isAdmin = userRole === USER_ROLES.ADMIN;
+  const isUsuarioAdmin = userRole === USER_ROLES.USUARIO_ADMIN;
+  const isUser = userRole === USER_ROLES.USUARIO;
+
+  const isTeam = isSuperAdmin || isAdmin;
+  const isManagement = isTeam || isUsuarioAdmin;
 
   return (
     <BrowserRouter>
@@ -45,6 +51,7 @@ function App() {
         <Route path="/login" element={
           isAuthenticated ? <Navigate to="/" /> : <Login onLogin={() => setIsAuthenticated(true)} />
         } />
+        <Route path="/register" element={<Register />} />
         <Route path="*" element={
           !isAuthenticated ? <Navigate to="/login" /> : (
             <div className="app-layout">
@@ -55,27 +62,30 @@ function App() {
                     {/* Rotas Comuns */}
                     <Route path="/" element={<Dashboard />} />
                     <Route path="/playground" element={<ChatPlayground />} />
-                    <Route path="/support" element={<SupportDashboard />} />
+                    <Route path="/inbox" element={<SupportDashboard />} /> {/* SupportDashboard will serve as Inbox for now */}
 
-                    {/* Rotas restritas para Admin e Super Admin */}
-                    {(isAdmin || isSuperAdmin) && (
+                    {/* Rotas restritas para o TIME (Admin e Super Admin) */}
+                    {isTeam && (
                       <>
                         <Route path="/agent/new" element={<ConfigPanel />} />
-                        <Route path="/agent/:id" element={<ConfigPanel />} />
                         <Route path="/faq" element={<FAQ />} />
-                        <Route path="/knowledge-bases" element={<KnowledgeBaseList />} />
-                        <Route path="/knowledge-bases/:id" element={<KnowledgeBaseEditor />} />
                         <Route path="/tools" element={<ToolsManager standalone={true} />} />
                         <Route path="/financeiro" element={<Financeiro />} />
                         <Route path="/fine-tuning" element={<FineTuning />} />
                         <Route path="/integrations" element={<IntegrationsPanel />} />
                         <Route path="/background-tasks" element={<BackgroundTasks />} />
+                        <Route path="/support" element={<SupportDashboard />} />
                       </>
                     )}
 
-                    {/* Rota restrita APENAS para Super Admin */}
-                    {isSuperAdmin && (
-                      <Route path="/users" element={<UserManagement />} />
+                    {/* Rota restrita para GESTÃO (Super Admin, Admin e Client Admin) */}
+                    {isManagement && (
+                      <>
+                        <Route path="/users" element={<UserManagement />} />
+                        <Route path="/agent/:id" element={<ConfigPanel />} />
+                        <Route path="/knowledge-bases" element={<KnowledgeBaseList />} />
+                        <Route path="/knowledge-bases/:id" element={<KnowledgeBaseEditor />} />
+                      </>
                     )}
 
                     {/* Redirecionar qualquer acesso não autorizado para a Home */}

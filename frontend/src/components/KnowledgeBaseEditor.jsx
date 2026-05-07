@@ -5,16 +5,22 @@ import { api } from '../api/client';
 import KnowledgeBaseManager from './KnowledgeBaseManager';
 import ExpandableField from './ExpandableField';
 
+import { useRole } from '../hooks/useRole';
+
 function KnowledgeBaseEditor() {
     const { id } = useParams();
     const location = useLocation();
+    const { isTeam } = useRole();
     const isNew = id === 'new';
     const navigate = useNavigate();
     
     // Pegar a view desejada via query param (?view=metadata ou ?view=content)
     const searchParams = new URLSearchParams(location.search);
     const initialView = searchParams.get('view') || (isNew ? 'metadata' : 'content');
-    const [view, setView] = useState(initialView);
+    
+    // Garantir que não-equipe não acesse a view de metadata
+    const effectiveInitialView = (!isTeam && initialView === 'metadata') ? 'content' : initialView;
+    const [view, setView] = useState(effectiveInitialView);
 
     const [name, setName] = useState(isNew ? 'Nova Base de Conhecimento' : '');
     const [description, setDescription] = useState('');
@@ -44,8 +50,14 @@ function KnowledgeBaseEditor() {
     // Atualiza a visualização se o parâmetro mudar
     useEffect(() => {
         const v = searchParams.get('view');
-        if (v) setView(v);
-    }, [location.search]);
+        if (v) {
+            if (!isTeam && v === 'metadata') {
+                setView('content');
+            } else {
+                setView(v);
+            }
+        }
+    }, [location.search, isTeam]);
 
     // Clear status toast after some time
     useEffect(() => {
@@ -134,13 +146,15 @@ function KnowledgeBaseEditor() {
                         borderRadius: '12px',
                         border: '1px solid rgba(255,255,255,0.05)'
                     }}>
-                        <button 
-                            onClick={() => navigate(`?view=metadata`)}
-                            className={`tab-btn ${view === 'metadata' ? 'active' : ''}`}
-                            style={viewTabStyle(view === 'metadata')}
-                        >
-                            ⚙️ Identificação
-                        </button>
+                        {isTeam && (
+                            <button 
+                                onClick={() => navigate(`?view=metadata`)}
+                                className={`tab-btn ${view === 'metadata' ? 'active' : ''}`}
+                                style={viewTabStyle(view === 'metadata')}
+                            >
+                                ⚙️ Identificação
+                            </button>
+                        )}
                         <button 
                             onClick={() => navigate(`?view=content`)}
                             className={`tab-btn ${view === 'content' ? 'active' : ''}`}

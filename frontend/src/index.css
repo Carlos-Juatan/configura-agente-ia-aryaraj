@@ -17,6 +17,10 @@
   --success-color: #10b981;
   --error-color: #ef4444;
   --card-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.4);
+  --mesh-color-1: #1e1b4b;
+  --mesh-color-2: #312e81;
+  --mesh-color-3: #1e293b;
+  --mesh-color-4: #0f172a;
 }
 
 .title-group {
@@ -328,6 +332,35 @@ body {
 
 .logout-btn-icon {
   font-size: 1.1rem;
+}
+
+/* Premium Mesh Background */
+.mesh-background {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: -1;
+  background-color: var(--bg-color);
+  background-image: 
+    radial-gradient(at 0% 0%, var(--mesh-color-1) 0, transparent 50%), 
+    radial-gradient(at 50% 0%, var(--mesh-color-2) 0, transparent 50%), 
+    radial-gradient(at 100% 0%, var(--mesh-color-1) 0, transparent 50%), 
+    radial-gradient(at 0% 50%, var(--mesh-color-3) 0, transparent 50%), 
+    radial-gradient(at 50% 50%, var(--mesh-color-4) 0, transparent 50%), 
+    radial-gradient(at 100% 50%, var(--mesh-color-3) 0, transparent 50%), 
+    radial-gradient(at 0% 100%, var(--mesh-color-1) 0, transparent 50%), 
+    radial-gradient(at 50% 100%, var(--mesh-color-2) 0, transparent 50%), 
+    radial-gradient(at 100% 100%, var(--mesh-color-1) 0, transparent 50%);
+  background-size: 200% 200%;
+  animation: mesh-animation 20s ease infinite;
+}
+
+@keyframes mesh-animation {
+  0% { background-position: 0% 0%; }
+  50% { background-position: 100% 100%; }
+  100% { background-position: 0% 0%; }
 }
 
 .user-profile-container {

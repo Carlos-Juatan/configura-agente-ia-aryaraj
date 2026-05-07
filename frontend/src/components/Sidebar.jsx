@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { API_URL, AGENT_API_KEY } from '../config';
+import { USER_ROLES } from '../constants/auth';
 
 const Sidebar = ({ onLogout }) => {
     const [showLogoutModal, setShowLogoutModal] = useState(false);
@@ -9,10 +10,14 @@ const Sidebar = ({ onLogout }) => {
     const [loading, setLoading] = useState(false);
     const [status, setStatus] = useState({ type: '', message: '' });
 
-    const userRole = localStorage.getItem('user_role') || 'Usuário';
-    const isSuperAdmin = userRole === 'Super Admin';
-    const isAdmin = userRole === 'Admin';
-    const isUser = userRole === 'Usuário';
+    const userRole = localStorage.getItem('user_role');
+    const isSuperAdmin = userRole === USER_ROLES.SUPERADMIN;
+    const isAdmin = userRole === USER_ROLES.ADMIN;
+    const isUsuarioAdmin = userRole === USER_ROLES.USUARIO_ADMIN;
+    const isUser = userRole === USER_ROLES.USUARIO;
+
+    const isTeam = isSuperAdmin || isAdmin;
+    const isManagement = isTeam || isUsuarioAdmin;
 
     const fetchUserData = async () => {
         try {
@@ -81,9 +86,9 @@ const Sidebar = ({ onLogout }) => {
                 </div>
 
                 <nav className="sidebar-nav">
-                    {(isSuperAdmin || isAdmin || isUser) && (
-                        <div className="nav-section">
-                            <span className="nav-section-title">GERENCIAMENTO</span>
+                    <div className="nav-section">
+                        <span className="nav-section-title">GERENCIAMENTO</span>
+                        {(isManagement || isUser) && (
                             <NavLink
                                 to="/"
                                 className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
@@ -92,62 +97,75 @@ const Sidebar = ({ onLogout }) => {
                                 <span className="nav-label">Meus Agentes</span>
                                 <div className="active-indicator"></div>
                             </NavLink>
-                            {(isSuperAdmin || isAdmin) && (
-                                <>
-                                    <NavLink
-                                        to="/support"
-                                        className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-                                    >
-                                        <span className="nav-icon">🎧</span>
-                                        <span className="nav-label">Suporte Humano</span>
-                                        <div className="active-indicator"></div>
-                                    </NavLink>
-                                    <NavLink
-                                        to="/knowledge-bases"
-                                        className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-                                    >
-                                        <span className="nav-icon">📚</span>
-                                        <span className="nav-label">Bases de Conhecimento</span>
-                                        <div className="active-indicator"></div>
-                                    </NavLink>
-                                    <NavLink
-                                        to="/tools"
-                                        className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-                                    >
-                                        <span className="nav-icon">🛠️</span>
-                                        <span className="nav-label">Ferramentas (API)</span>
-                                        <div className="active-indicator"></div>
-                                    </NavLink>
-                                    <NavLink
-                                        to="/financeiro"
-                                        className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-                                    >
-                                        <span className="nav-icon">💰</span>
-                                        <span className="nav-label">Financeiro</span>
-                                        <div className="active-indicator"></div>
-                                    </NavLink>
-                                    <NavLink
-                                        to="/background-tasks"
-                                        className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-                                    >
-                                        <span className="nav-icon">🕛</span>
-                                        <span className="nav-label">Processamentos</span>
-                                        <div className="active-indicator"></div>
-                                    </NavLink>
-                                    <NavLink
-                                        to="/integrations"
-                                        className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-                                    >
-                                        <span className="nav-icon">🔌</span>
-                                        <span className="nav-label">Integrações</span>
-                                        <div className="active-indicator"></div>
-                                    </NavLink>
-                                </>
-                            )}
-                        </div>
-                    )}
+                        )}
+                        {(isManagement || isUser) && (
+                            <NavLink
+                                to="/inbox"
+                                className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                            >
+                                <span className="nav-icon">📥</span>
+                                <span className="nav-label">Inbox / FAQ</span>
+                                <div className="active-indicator"></div>
+                            </NavLink>
+                        )}
 
-                    {(isSuperAdmin || isAdmin) && (
+                        {isManagement && (
+                            <NavLink
+                                to="/knowledge-bases"
+                                className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                            >
+                                <span className="nav-icon">📚</span>
+                                <span className="nav-label">Bases de Conhecimento</span>
+                                <div className="active-indicator"></div>
+                            </NavLink>
+                        )}
+                        {isTeam && (
+                            <>
+                                <NavLink
+                                    to="/support"
+                                    className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                                >
+                                    <span className="nav-icon">🎧</span>
+                                    <span className="nav-label">Suporte Humano</span>
+                                    <div className="active-indicator"></div>
+                                </NavLink>
+                                <NavLink
+                                    to="/tools"
+                                    className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                                >
+                                    <span className="nav-icon">🛠️</span>
+                                    <span className="nav-label">Ferramentas (API)</span>
+                                    <div className="active-indicator"></div>
+                                </NavLink>
+                                <NavLink
+                                    to="/financeiro"
+                                    className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                                >
+                                    <span className="nav-icon">💰</span>
+                                    <span className="nav-label">Financeiro</span>
+                                    <div className="active-indicator"></div>
+                                </NavLink>
+                                <NavLink
+                                    to="/background-tasks"
+                                    className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                                >
+                                    <span className="nav-icon">🕛</span>
+                                    <span className="nav-label">Processamentos</span>
+                                    <div className="active-indicator"></div>
+                                </NavLink>
+                                <NavLink
+                                    to="/integrations"
+                                    className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                                >
+                                    <span className="nav-icon">🔌</span>
+                                    <span className="nav-label">Integrações</span>
+                                    <div className="active-indicator"></div>
+                                </NavLink>
+                            </>
+                        )}
+                    </div>
+
+                    {isTeam && (
                         <div className="nav-section">
                             <span className="nav-section-title">LABORATÓRIO</span>
                             <NavLink
@@ -161,7 +179,7 @@ const Sidebar = ({ onLogout }) => {
                         </div>
                     )}
 
-                    {isSuperAdmin && (
+                    {isManagement && (
                         <div className="nav-section">
                             <span className="nav-section-title">ADMINISTRAÇÃO</span>
                             <NavLink

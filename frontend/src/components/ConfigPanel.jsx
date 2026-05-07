@@ -8,8 +8,13 @@ import ToolsManager from './ToolsManager';
 import PromptEditor from './PromptEditor';
 import AgentHistory from './AgentHistory';
 import PromptVersions from './PromptVersions';
+import { USER_ROLES } from '../constants/auth';
 
 const ConfigPanel = () => {
+    const userRole = localStorage.getItem('user_role');
+    const isTeam = userRole === USER_ROLES.SUPERADMIN || userRole === USER_ROLES.ADMIN;
+    const isUsuarioAdmin = userRole === USER_ROLES.USUARIO_ADMIN;
+    
     const { id } = useParams();
     const navigate = useNavigate();
     const location = useLocation();
@@ -539,11 +544,11 @@ const ConfigPanel = () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem' }}>
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
                     <h2 className="panel-title" style={{ margin: 0 }}>
-                        {isNew ? 'Criar Novo Agente' : 'Editar Agente'}
+                        {isNew ? 'Criar Novo Agente' : (isTeam ? 'Editar Agente' : 'Visualizar Agente')}
                     </h2>
                     {!isNew && name && (
                         <p style={{ margin: '4px 0 0 0', opacity: 0.6, fontSize: '0.9rem', color: 'var(--accent-color)', fontWeight: 600 }}>
-                            {name}
+                            {name} {!isTeam && '(Modo Visualização)'}
                         </p>
                     )}
                 </div>
@@ -1273,12 +1278,13 @@ const ConfigPanel = () => {
 
                             <PromptEditor
                                 value={systemPrompt}
-                                onChange={(e) => setSystemPrompt(e.target.value)}
+                                onChange={(e) => isTeam && setSystemPrompt(e.target.value)}
                                 agentId={id}
                                 availableTools={toolsList
                                     .filter(t => selectedTools.includes(t.id))
                                     .map(t => t.name)
                                 }
+                                readOnly={!isTeam}
                             />
                         </div>
                     </div>
@@ -2563,7 +2569,7 @@ const ConfigPanel = () => {
                 )}
             </div>
 
-            {activeTab !== 'historico' && activeTab !== 'versoes' && (
+            {isTeam && activeTab !== 'historico' && activeTab !== 'versoes' && (
                 <div style={{ marginTop: '3rem', borderTop: '1px solid var(--border-color)', paddingTop: '2rem' }}>
                     {validationErrors.length > 0 && (
                         <div style={{
@@ -2593,6 +2599,24 @@ const ConfigPanel = () => {
                         <button type="button" onClick={handleSave} className="save-button" style={{ padding: '1rem 3rem' }}>
                             {isNew ? '✨ Criar Agente' : '💾 Salvar Alterações'}
                         </button>
+                    </div>
+                </div>
+            )}
+            
+            {!isTeam && activeTab !== 'historico' && activeTab !== 'versoes' && (
+                <div style={{ marginTop: '3rem', borderTop: '1px solid var(--border-color)', paddingTop: '2rem' }}>
+                    <div style={{ 
+                        background: 'rgba(99, 102, 241, 0.05)', 
+                        border: '1px solid rgba(99, 102, 241, 0.2)',
+                        padding: '1.5rem',
+                        borderRadius: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        color: '#a5b4fc',
+                        fontSize: '0.9rem'
+                    }}>
+                        <span>ℹ️</span> Você está visualizando as configurações do agente. Apenas administradores do time podem realizar alterações.
                     </div>
                 </div>
             )}

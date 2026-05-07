@@ -147,6 +147,30 @@ async def init_db():
                 "ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS metadata_val TEXT",
                 "ALTER TABLE session_summaries ADD COLUMN IF NOT EXISTS is_test_session BOOLEAN DEFAULT FALSE",
                 "ALTER TABLE session_summaries ADD COLUMN IF NOT EXISTS test_report JSONB",
+                # New Roles and Invitations Migrations
+                "UPDATE users SET role = 'USUARIO' WHERE role NOT IN ('SUPERADMIN', 'ADMIN', 'USUARIO_ADMIN', 'USUARIO')",
+                """
+                CREATE TABLE IF NOT EXISTS invitations (
+                    id SERIAL PRIMARY KEY,
+                    token VARCHAR UNIQUE NOT NULL,
+                    target_role VARCHAR NOT NULL,
+                    created_by_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    expires_at TIMESTAMP NOT NULL,
+                    used_at TIMESTAMP,
+                    is_revoked BOOLEAN DEFAULT FALSE
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS audit_logs (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    action VARCHAR NOT NULL,
+                    details JSONB DEFAULT '{}',
+                    ip_address VARCHAR,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
                 """
                 CREATE TABLE IF NOT EXISTS global_context_variables (
                     id SERIAL PRIMARY KEY,
@@ -222,7 +246,7 @@ async def init_db():
                     name VARCHAR NOT NULL,
                     email VARCHAR UNIQUE NOT NULL,
                     password VARCHAR NOT NULL,
-                    role VARCHAR DEFAULT 'Usuário',
+                    role VARCHAR DEFAULT 'USUARIO',
                     status VARCHAR DEFAULT 'ATIVO',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

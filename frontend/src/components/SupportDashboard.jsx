@@ -2,10 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import ConfirmModal from './ConfirmModal';
+import { USER_ROLES } from '../constants/auth';
 
 const SupportDashboard = () => {
     const [requests, setRequests] = useState([]);
     const [loading, setLoading] = useState(true);
+
+    const userRole = localStorage.getItem('user_role');
+    const isTeam = userRole === USER_ROLES.SUPERADMIN || userRole === USER_ROLES.ADMIN;
+    const isUser = userRole === USER_ROLES.USUARIO || userRole === USER_ROLES.USUARIO_ADMIN;
 
     // Modals states
     const [summaryModal, setSummaryModal] = useState(null);
@@ -231,70 +236,76 @@ const SupportDashboard = () => {
         <div className="support-dashboard">
             <header className="page-header">
                 <div>
-                    <h1 className="page-title">🎧 Suporte Humano</h1>
-                    <p className="page-subtitle">Gerencie os transbordos e ajudas solicitadas pelos usuários.</p>
+                    <h1 className="page-title">{isTeam ? '🎧 Suporte Humano' : '📥 Inbox / Atendimentos'}</h1>
+                    <p className="page-subtitle">{isTeam ? 'Gerencie os transbordos e ajudas solicitadas pelos usuários.' : 'Histórico de conversas e atendimentos solicitados.'}</p>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <button
-                        onClick={() => setShowGuide(true)}
-                        style={{
-                            display: 'flex', alignItems: 'center', gap: '8px',
-                            background: 'linear-gradient(135deg, rgba(99,102,241,0.12) 0%, rgba(168,85,247,0.12) 100%)',
-                            border: '1px solid rgba(99,102,241,0.35)',
-                            color: '#a5b4fc', borderRadius: '12px',
-                            padding: '9px 18px', fontSize: '0.85rem', fontWeight: 700,
-                            cursor: 'pointer', transition: 'all 0.2s ease',
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.background = 'linear-gradient(135deg, rgba(99,102,241,0.25) 0%, rgba(168,85,247,0.25) 100%)'; e.currentTarget.style.transform = 'scale(1.03)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'linear-gradient(135deg, rgba(99,102,241,0.12) 0%, rgba(168,85,247,0.12) 100%)'; e.currentTarget.style.transform = 'scale(1)'; }}
-                    >
-                        <span style={{ fontSize: '1rem' }}>📖</span> Guia
-                    </button>
-                    <button
-                        onClick={handleOpenConfig}
-                        style={{
-                            display: 'flex', alignItems: 'center', gap: '8px',
-                            background: 'linear-gradient(135deg, rgba(99,102,241,0.12) 0%, rgba(168,85,247,0.12) 100%)',
-                            border: '1px solid rgba(99,102,241,0.35)',
-                            color: '#a5b4fc', borderRadius: '12px',
-                            padding: '9px 18px', fontSize: '0.85rem', fontWeight: 700,
-                            cursor: 'pointer', transition: 'all 0.2s ease',
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.background = 'linear-gradient(135deg, rgba(99,102,241,0.25) 0%, rgba(168,85,247,0.25) 100%)'; e.currentTarget.style.transform = 'scale(1.03)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.6)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'linear-gradient(135deg, rgba(99,102,241,0.12) 0%, rgba(168,85,247,0.12) 100%)'; e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.35)'; }}
-                    >
-                        <span style={{ fontSize: '1rem' }}>⚙️</span> Configurar Variáveis
-                    </button>
-                    <button
-                        onClick={handleCopyPublicLink}
-                        style={{
-                            display: 'flex', alignItems: 'center', gap: '8px',
-                            background: showCopySuccess ? 'rgba(16, 185, 129, 0.2)' : 'linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(5, 150, 105, 0.12) 100%)',
-                            border: '1px solid ' + (showCopySuccess ? '#10b981' : 'rgba(16, 185, 129, 0.35)'),
-                            color: showCopySuccess ? '#4ade80' : '#10b981', borderRadius: '12px',
-                            padding: '9px 18px', fontSize: '0.85rem', fontWeight: 800,
-                            cursor: 'pointer', transition: 'all 0.2s ease',
-                        }}
-                        onMouseEnter={e => { if(!showCopySuccess) { e.currentTarget.style.background = 'rgba(16, 185, 129, 0.2)'; e.currentTarget.style.transform = 'scale(1.03)'; } }}
-                        onMouseLeave={e => { if(!showCopySuccess) { e.currentTarget.style.background = 'linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(5, 150, 105, 0.12) 100%)'; e.currentTarget.style.transform = 'scale(1)'; } }}
-                    >
-                        <span style={{ fontSize: '1rem' }}>{showCopySuccess ? '✅' : '🔗'}</span>
-                        {showCopySuccess ? 'Link Copiado!' : 'Link Público'}
-                    </button>
+                    {isTeam && (
+                        <>
+                            <button
+                                onClick={() => setShowGuide(true)}
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: '8px',
+                                    background: 'linear-gradient(135deg, rgba(99,102,241,0.12) 0%, rgba(168,85,247,0.12) 100%)',
+                                    border: '1px solid rgba(99,102,241,0.35)',
+                                    color: '#a5b4fc', borderRadius: '12px',
+                                    padding: '9px 18px', fontSize: '0.85rem', fontWeight: 700,
+                                    cursor: 'pointer', transition: 'all 0.2s ease',
+                                }}
+                                onMouseEnter={e => { e.currentTarget.style.background = 'linear-gradient(135deg, rgba(99,102,241,0.25) 0%, rgba(168,85,247,0.25) 100%)'; e.currentTarget.style.transform = 'scale(1.03)'; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = 'linear-gradient(135deg, rgba(99,102,241,0.12) 0%, rgba(168,85,247,0.12) 100%)'; e.currentTarget.style.transform = 'scale(1)'; }}
+                            >
+                                <span style={{ fontSize: '1rem' }}>📖</span> Guia
+                            </button>
+                            <button
+                                onClick={handleOpenConfig}
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: '8px',
+                                    background: 'linear-gradient(135deg, rgba(99,102,241,0.12) 0%, rgba(168,85,247,0.12) 100%)',
+                                    border: '1px solid rgba(99,102,241,0.35)',
+                                    color: '#a5b4fc', borderRadius: '12px',
+                                    padding: '9px 18px', fontSize: '0.85rem', fontWeight: 700,
+                                    cursor: 'pointer', transition: 'all 0.2s ease',
+                                }}
+                                onMouseEnter={e => { e.currentTarget.style.background = 'linear-gradient(135deg, rgba(99,102,241,0.25) 0%, rgba(168,85,247,0.25) 100%)'; e.currentTarget.style.transform = 'scale(1.03)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.6)'; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = 'linear-gradient(135deg, rgba(99,102,241,0.12) 0%, rgba(168,85,247,0.12) 100%)'; e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.35)'; }}
+                            >
+                                <span style={{ fontSize: '1rem' }}>⚙️</span> Configurar Variáveis
+                            </button>
+                            <button
+                                onClick={handleCopyPublicLink}
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: '8px',
+                                    background: showCopySuccess ? 'rgba(16, 185, 129, 0.2)' : 'linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(5, 150, 105, 0.12) 100%)',
+                                    border: '1px solid ' + (showCopySuccess ? '#10b981' : 'rgba(16, 185, 129, 0.35)'),
+                                    color: showCopySuccess ? '#4ade80' : '#10b981', borderRadius: '12px',
+                                    padding: '9px 18px', fontSize: '0.85rem', fontWeight: 800,
+                                    cursor: 'pointer', transition: 'all 0.2s ease',
+                                }}
+                                onMouseEnter={e => { if(!showCopySuccess) { e.currentTarget.style.background = 'rgba(16, 185, 129, 0.2)'; e.currentTarget.style.transform = 'scale(1.03)'; } }}
+                                onMouseLeave={e => { if(!showCopySuccess) { e.currentTarget.style.background = 'linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(5, 150, 105, 0.12) 100%)'; e.currentTarget.style.transform = 'scale(1)'; } }}
+                            >
+                                <span style={{ fontSize: '1rem' }}>{showCopySuccess ? '✅' : '🔗'}</span>
+                                {showCopySuccess ? 'Link Copiado!' : 'Link Público'}
+                            </button>
+                        </>
+                    )}
                     <div className="badge-total">
                         {Array.isArray(requests) ? requests.length : 0} na fila
                     </div>
                 </div>
             </header>
 
-            <div className="config-tip">
-                <div className="tip-icon">💡</div>
-                <div className="tip-content">
-                    <strong>Configuração:</strong> O suporte é acionado via Ferramenta (Webhook) que contenha no nome:
-                    <code>suporte</code>, <code>atendente</code> ou <code>humano</code>.
-                    A resposta do Webhook deve conter <code>"success": true</code>.
+            {isTeam && (
+                <div className="config-tip">
+                    <div className="tip-icon">💡</div>
+                    <div className="tip-content">
+                        <strong>Configuração:</strong> O suporte é acionado via Ferramenta (Webhook) que contenha no nome:
+                        <code>suporte</code>, <code>atendente</code> ou <code>humano</code>.
+                        A resposta do Webhook deve conter <code>"success": true</code>.
+                    </div>
                 </div>
-            </div>
+            )}
 
             <div className="support-grid">
                 {!Array.isArray(requests) || requests.length === 0 ? (

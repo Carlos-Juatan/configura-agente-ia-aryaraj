@@ -35,6 +35,7 @@ const Login = ({ onLogin }) => {
 
     return (
         <div className="login-page">
+            <div className="mesh-background"></div>
             <div className="login-box fade-in">
                 <div className="login-header">
                     <div className="brand-logo">🤖</div>
@@ -96,7 +97,7 @@ const Login = ({ onLogin }) => {
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    background: radial-gradient(circle at top left, #1e293b, #0f172a);
+                    background: transparent;
                     color: white;
                     overflow: hidden;
                 }

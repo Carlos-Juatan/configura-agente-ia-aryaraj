@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Security, Request, Response, Body
+from fastapi.responses import JSONResponse
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -82,15 +83,36 @@ async def get_current_user(token: str = Depends(APIKeyHeader(name="Authorization
         
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_email: str = payload.get("sub")
+        user_role: str = payload.get("role")
+        user_id: int = payload.get("id")
         
         if user_email is None:
             logger.warning("AUTH: Payload do token sem 'sub'")
             raise HTTPException(status_code=401, detail="Token inválido")
             
-        return user_email
+        return {"email": user_email, "role": user_role, "id": user_id}
     except JWTError as e:
         logger.warning(f"AUTH: Falha na validação do JWT: {str(e)}")
         raise HTTPException(status_code=401, detail="Token inválido ou expirado")
+
+from models import UserRole
+
+def check_role(required_roles: List[str]):
+    async def role_checker(current_user: dict = Depends(get_current_user)):
+        user_role = current_user.get("role")
+        
+        # SUPERADMIN has all permissions
+        if user_role == UserRole.SUPERADMIN.value:
+            return current_user
+            
+        if user_role not in required_roles:
+            logger.warning(f"AUTH: Usuário {current_user['email']} tentou acessar recurso restrito. Papel: {user_role}")
+            raise HTTPException(
+                status_code=403,
+                detail="Você não tem permissão para acessar este recurso."
+            )
+        return current_user
+    return role_checker
 
 from prompt_lab import router as prompt_lab_router
 from session_analysis import router as analysis_router
@@ -112,9 +134,46 @@ async def verify_api_key(api_key: str = Security(_API_KEY_HEADER)):
             detail="API Key inválida ou ausente. Envie o header X-API-Key correto."
         )
 
+async def provision_superadmin():
+    """Cria o Super Admin inicial baseado no .env se n├úo existir nenhum."""
+    email = os.getenv("INITIAL_SUPERADMIN_EMAIL")
+    password = os.getenv("INITIAL_SUPERADMIN_PASSWORD")
+    name = os.getenv("INITIAL_SUPERADMIN_NAME", "Admin Inicial")
+
+    if not email or not password:
+        logger.info("PROVISION: INITIAL_SUPERADMIN_EMAIL ou PASSWORD n├úo definidos. Pulando provisionamento.")
+        return
+
+    async with async_session() as session:
+        # Verifica se já existe algum superadmin
+        from models import UserRole
+        result = await session.execute(select(UserModel).where(UserModel.role == UserRole.SUPERADMIN.value))
+        if result.scalar_one_or_none():
+            logger.info("PROVISION: Super Admin já existe no sistema.")
+            return
+
+        # Verifica se o email já está em uso por outro papel (raro em clean install)
+        result = await session.execute(select(UserModel).where(UserModel.email == email))
+        if result.scalar_one_or_none():
+            logger.warning(f"PROVISION: Email {email} já está em uso, mas n├úo como SUPERADMIN. Pulando.")
+            return
+
+        # Cria o Super Admin
+        new_admin = UserModel(
+            name=name,
+            email=email,
+            password=get_password_hash(password),
+            role=UserRole.SUPERADMIN.value,
+            status="ATIVO"
+        )
+        session.add(new_admin)
+        await session.commit()
+        logger.info(f"PROVISION: Super Admin '{email}' criado com sucesso!")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    await provision_superadmin()
     if not broker.is_worker_process:
         await broker.startup()
     yield
@@ -146,11 +205,14 @@ class BulkSummarizeRequest(BaseModel):
     metadata_val: str
     category: str = "Geral"
 
+class RoleUpdate(BaseModel):
+    role: str
+
 class UserCreate(BaseModel):
     name: str = "Novo Usuário"
     email: str
     password: str
-    role: str = "Usuário"
+    role: str = UserRole.USUARIO.value
     status: str = "ATIVO"
 
 class UserUpdate(BaseModel):
@@ -159,7 +221,8 @@ class UserUpdate(BaseModel):
     password: Optional[str] = None
 
 @app.get("/users/me", dependencies=[Depends(verify_api_key)])
-async def get_me(current_email: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def get_me(current_user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    current_email = current_user["email"]
     result = await db.execute(select(UserModel).where(UserModel.email == current_email))
     user = result.scalar_one_or_none()
     if not user:
@@ -170,12 +233,17 @@ async def get_me(current_email: str = Depends(get_current_user), db: AsyncSessio
         admin_email = env_vars.get("ADMIN_EMAIL") or os.getenv("ADMIN_EMAIL") or "admin@agente.com"
         
         if current_email == admin_email:
-            return {"id": 0, "name": "Admin Super", "email": admin_email, "role": "Super Admin"}
+            # Tenta buscar no banco para pegar o ID real
+            result_admin = await db.execute(select(UserModel).where(UserModel.email == admin_email))
+            db_admin = result_admin.scalar_one_or_none()
+            real_id = db_admin.id if db_admin else 0
+            return {"id": real_id, "name": db_admin.name if db_admin else "Admin Super", "email": admin_email, "role": UserRole.SUPERADMIN.value}
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
     return user
 
 @app.put("/users/me", dependencies=[Depends(verify_api_key)])
-async def update_me(user_update: UserUpdate, current_email: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def update_me(user_update: UserUpdate, current_user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    current_email = current_user["email"]
     result = await db.execute(select(UserModel).where(UserModel.email == current_email))
     user = result.scalar_one_or_none()
     
@@ -194,7 +262,7 @@ async def update_me(user_update: UserUpdate, current_email: str = Depends(get_cu
                 name=user_update.name or "Admin Super",
                 email=admin_email,
                 password=get_password_hash(admin_pass),
-                role="Super Admin",
+                role=UserRole.SUPERADMIN.value,
                 status="ATIVO"
             )
             db.add(user)
@@ -204,7 +272,7 @@ async def update_me(user_update: UserUpdate, current_email: str = Depends(get_cu
     update_data = user_update.model_dump(exclude_unset=True)
     
     # Regra: Se for Super Admin, só permite atualizar o NOME.
-    if is_env_admin or (user and user.role == "Super Admin"):
+    if is_env_admin or (user and user.role == UserRole.SUPERADMIN.value):
         if "name" in update_data:
             user.name = update_data["name"]
         # Ignora e-mail e senha silenciosamente ou retorna erro se tentarem forçar
@@ -243,14 +311,21 @@ async def login(request: Request, req: LoginRequest, db: AsyncSession = Depends(
     admin_email = env_vars.get("ADMIN_EMAIL") or os.getenv("ADMIN_EMAIL") or "admin@agente.com"
     admin_password = env_vars.get("ADMIN_PASSWORD") or os.getenv("ADMIN_PASSWORD") # Se não tiver, falha
     
-    # Check fixed admin from env
-    if admin_email and admin_password:
-        # Se a senha no env for plain text (pode ser o caso do usuário), verificamos direta
-        if req.email == admin_email:
-            # Tenta verificar se a senha enviada bate com a do env (pode ser hash ou plain dependendo de como o usuário configurou)
-            if req.password == admin_password:
-                access_token = create_access_token(data={"sub": admin_email})
-                return {"success": True, "token": access_token, "user": {"name": "Admin Super", "role": "Super Admin"}}
+    # Check fixed admin from env (Initial Superadmin)
+    initial_email = os.getenv("INITIAL_SUPERADMIN_EMAIL")
+    initial_pass = os.getenv("INITIAL_SUPERADMIN_PASSWORD")
+    
+    if initial_email and initial_pass:
+        if req.email == initial_email and req.password == initial_pass:
+            from models import UserRole
+            # Tenta buscar no banco para pegar o ID real (provisionado no startup)
+            result_init = await db.execute(select(UserModel).where(UserModel.email == initial_email))
+            db_init = result_init.scalar_one_or_none()
+            real_id = db_init.id if db_init else 0
+            real_name = db_init.name if db_init else os.getenv("INITIAL_SUPERADMIN_NAME", "Admin Inicial")
+            
+            access_token = create_access_token(data={"sub": initial_email, "role": UserRole.SUPERADMIN.value, "id": real_id})
+            return {"success": True, "token": access_token, "user": {"name": real_name, "role": UserRole.SUPERADMIN.value, "id": real_id}}
 
     # Busca em banco
     try:
@@ -269,7 +344,7 @@ async def login(request: Request, req: LoginRequest, db: AsyncSession = Depends(
                     await db.commit()
             
             if is_valid:
-                access_token = create_access_token(data={"sub": db_user.email})
+                access_token = create_access_token(data={"sub": db_user.email, "role": db_user.role, "id": db_user.id})
                 return {"success": True, "token": access_token, "user": {"name": db_user.name, "role": db_user.role, "id": db_user.id}}
     except Exception as e:
         logger.error(f"Erro no login ao acessar DB: {e}")
@@ -277,31 +352,55 @@ async def login(request: Request, req: LoginRequest, db: AsyncSession = Depends(
     raise HTTPException(status_code=401, detail="Email ou senha incorretos")
 
 # --- USER MANAGEMENT ROUTES ---
-@app.get("/users", dependencies=[Depends(verify_api_key), Depends(get_current_user)])
-async def get_users(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(UserModel).order_by(UserModel.id.desc()))
+@app.get("/users", dependencies=[Depends(verify_api_key)])
+async def get_users(
+    db: AsyncSession = Depends(get_db), 
+    current_user: dict = Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value, UserRole.USUARIO_ADMIN.value]))
+):
+    user_role = current_user["role"]
+    
+    query = select(UserModel).order_by(UserModel.id.desc())
+    
+    if user_role == UserRole.USUARIO_ADMIN.value:
+        # Usuário Admin só vê Usuários comuns e ele mesmo
+        query = query.where(UserModel.role.in_([UserRole.USUARIO.value, UserRole.USUARIO_ADMIN.value]))
+    
+    result = await db.execute(query)
     users = result.scalars().all()
     return users
 
-@app.post("/users", dependencies=[Depends(verify_api_key), Depends(get_current_user)])
-async def create_user(user: UserCreate, db: AsyncSession = Depends(get_db)):
-    user_data = user.model_dump()
-    user_data["password"] = get_password_hash(user.password)
-    db_user = UserModel(**user_data)
-    db.add(db_user)
-    await db.commit()
-    await db.refresh(db_user)
-    return db_user
+@app.post("/users", dependencies=[Depends(verify_api_key)])
+async def create_user_legacy():
+    raise HTTPException(status_code=405, detail="Criação direta de usuários desativada. Use o sistema de convites.")
 
-@app.put("/users/{user_id}", dependencies=[Depends(verify_api_key), Depends(get_current_user)])
-async def update_user(user_id: int, user: UserCreate, db: AsyncSession = Depends(get_db)):
+@app.put("/users/{user_id}", dependencies=[Depends(verify_api_key)])
+async def update_user(
+    user_id: int, 
+    user_update: UserCreate, 
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value, UserRole.USUARIO_ADMIN.value]))
+):
     result = await db.execute(select(UserModel).where(UserModel.id == user_id))
     db_user = result.scalar_one_or_none()
     if not db_user:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
     
-    update_data = user.model_dump(exclude_unset=True)
-    if "password" in update_data:
+    user_role = current_user["role"]
+    
+    # Restrições de promoção:
+    # USUARIO_ADMIN só pode editar USUARIOS e n├úo pode promover para ADMIN/SUPERADMIN
+    if user_role == UserRole.USUARIO_ADMIN.value:
+        if db_user.role in [UserRole.SUPERADMIN.value, UserRole.ADMIN.value]:
+            raise HTTPException(status_code=403, detail="Você não tem permissão para editar este tipo de usuário.")
+        if user_update.role not in [UserRole.USUARIO.value, UserRole.USUARIO_ADMIN.value]:
+             raise HTTPException(status_code=403, detail="Você só pode promover usuários para Usuário ou Usuário Admin.")
+
+    # Proteção contra auto-despromoção de SUPERADMIN
+    if current_user["id"] == user_id and db_user.role == UserRole.SUPERADMIN.value and user_update.role != UserRole.SUPERADMIN.value:
+        raise HTTPException(status_code=400, detail="O Super Admin não pode retirar seu próprio acesso de Super Admin.")
+
+    update_data = user_update.model_dump(exclude_unset=True)
+    if "password" in update_data and update_data["password"]:
         update_data["password"] = get_password_hash(update_data["password"])
         
     for key, value in update_data.items():
@@ -309,26 +408,204 @@ async def update_user(user_id: int, user: UserCreate, db: AsyncSession = Depends
     
     await db.commit()
     await db.refresh(db_user)
+    
+    from services.audit_service import AuditLogger
+    await AuditLogger.log(db, "UPDATE_USER", {"target_id": user_id, "new_role": db_user.role}, user_id=current_user["id"])
+    
     return db_user
 
-@app.delete("/users/{user_id}", dependencies=[Depends(verify_api_key), Depends(get_current_user)])
-async def delete_user(user_id: int, db: AsyncSession = Depends(get_db)):
+@app.delete("/users/{user_id}", dependencies=[Depends(verify_api_key)])
+async def delete_user(
+    user_id: int, 
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value, UserRole.USUARIO_ADMIN.value]))
+):
     result = await db.execute(select(UserModel).where(UserModel.id == user_id))
     db_user = result.scalar_one_or_none()
     if not db_user:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
     
+    # N├úo pode deletar a si mesmo
+    if current_user["id"] == user_id:
+        raise HTTPException(status_code=400, detail="Você não pode deletar sua própria conta.")
+
+    user_role = current_user["role"]
+    # USUARIO_ADMIN só pode deletar USUARIOS
+    if user_role == UserRole.USUARIO_ADMIN.value and db_user.role != UserRole.USUARIO.value:
+        raise HTTPException(status_code=403, detail="Você só pode deletar Usuários comuns.")
+
+    # ADMIN n├úo pode deletar SUPERADMIN
+    if user_role == UserRole.ADMIN.value and db_user.role == UserRole.SUPERADMIN.value:
+        raise HTTPException(status_code=403, detail="Administradores não podem deletar o Super Admin.")
+    
+    # Proteção: Último Super Admin
+    if db_user.role == UserRole.SUPERADMIN.value:
+        count_res = await db.execute(select(func.count(UserModel.id)).where(UserModel.role == UserRole.SUPERADMIN.value))
+        count = count_res.scalar()
+        if count <= 1:
+            raise HTTPException(status_code=400, detail="Não é possível deletar o último Super Admin.")
+    
     await db.delete(db_user)
     await db.commit()
+    
+    from services.audit_service import AuditLogger
+    await AuditLogger.log(db, "DELETE_USER", {"target_id": user_id, "target_email": db_user.email}, user_id=current_user["id"])
+    
     return {"success": True}
+
+@app.patch("/users/{user_id}/role", dependencies=[Depends(verify_api_key)])
+async def update_user_role(
+    user_id: int, 
+    req: RoleUpdate, 
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value, UserRole.USUARIO_ADMIN.value]))
+):
+    """Permite que administradores alterem o papel de usuários respeitando a hierarquia."""
+    result = await db.execute(select(UserModel).where(UserModel.id == user_id))
+    db_user = result.scalar_one_or_none()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    
+    current_role = current_user["role"]
+    new_role = req.role
+
+    if new_role not in [r.value for r in UserRole]:
+        raise HTTPException(status_code=400, detail="Papel inválido")
+
+    # Regras de Hierarquia:
+    # 1. SUPERADMIN pode tudo (exceto despromover o último superadmin)
+    # 2. ADMIN pode promover/despromover entre USUARIO, USUARIO_ADMIN e ADMIN, mas não pode mexer com SUPERADMIN
+    # 3. USUARIO_ADMIN só pode promover/despromover entre USUARIO e USUARIO_ADMIN
+    
+    if current_role == UserRole.SUPERADMIN.value:
+        # Proteção: Se estiver despromovendo um Superadmin, garante que não seja o único
+        if db_user.role == UserRole.SUPERADMIN.value and new_role != UserRole.SUPERADMIN.value:
+            count_res = await db.execute(select(func.count(UserModel.id)).where(UserModel.role == UserRole.SUPERADMIN.value))
+            count = count_res.scalar()
+            if count <= 1:
+                raise HTTPException(status_code=400, detail="Não é possível despromover o último Super Admin.")
+    
+    elif current_role == UserRole.ADMIN.value:
+        if db_user.role == UserRole.SUPERADMIN.value:
+            raise HTTPException(status_code=403, detail="Administradores não podem alterar o papel de um Super Admin.")
+        if new_role == UserRole.SUPERADMIN.value:
+            raise HTTPException(status_code=403, detail="Administradores não podem promover para Super Admin.")
+            
+    elif current_role == UserRole.USUARIO_ADMIN.value:
+        if db_user.role in [UserRole.SUPERADMIN.value, UserRole.ADMIN.value]:
+            raise HTTPException(status_code=403, detail="Você não tem permissão para alterar o papel deste usuário.")
+        if new_role not in [UserRole.USUARIO.value, UserRole.USUARIO_ADMIN.value]:
+            raise HTTPException(status_code=403, detail="Você só pode promover usuários para o nível de Usuário ou Usuário Admin.")
+
+    old_role = db_user.role
+    db_user.role = new_role
+    await db.commit()
+    
+    from services.audit_service import AuditLogger
+    await AuditLogger.log(db, "PROMOTE_USER", {"target_id": user_id, "old_role": old_role, "new_role": new_role}, user_id=current_user["id"])
+    
+    return {"success": True, "new_role": db_user.role}
+
+# --- INVITATION SYSTEM ---
+import secrets
+from datetime import timedelta
+
+class InvitationCreate(BaseModel):
+    target_role: str
+    expires_in_hours: int = 24
+
+@app.post("/invitations", dependencies=[Depends(verify_api_key)])
+async def create_invitation(
+    req: InvitationCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value, UserRole.USUARIO_ADMIN.value]))
+):
+    user_role = current_user["role"]
+    
+    # Restrições de convite
+    if user_role == UserRole.USUARIO_ADMIN.value and req.target_role not in [UserRole.USUARIO.value, UserRole.USUARIO_ADMIN.value]:
+        raise HTTPException(status_code=403, detail="Você só pode convidar Usuários ou Usuários Admins.")
+    
+    if user_role == UserRole.ADMIN.value and req.target_role == UserRole.SUPERADMIN.value:
+        raise HTTPException(status_code=403, detail="Administradores não podem convidar Super Admins.")
+
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.utcnow() + timedelta(hours=req.expires_in_hours)
+    
+    from models import InvitationModel
+    new_invitation = InvitationModel(
+        token=token,
+        target_role=req.target_role,
+        created_by_id=current_user["id"] if current_user["id"] != 0 else None,
+        expires_at=expires_at
+    )
+    db.add(new_invitation)
+    await db.commit()
+    
+    from services.audit_service import AuditLogger
+    await AuditLogger.log(db, "CREATE_INVITATION", {"target_role": req.target_role, "expires_at": str(expires_at)}, user_id=current_user["id"])
+    
+    return {"token": token, "expires_at": expires_at}
+
+@app.get("/invitations/{token}")
+async def get_invitation(token: str, db: AsyncSession = Depends(get_db)):
+    from models import InvitationModel
+    result = await db.execute(select(InvitationModel).where(InvitationModel.token == token))
+    inv = result.scalar_one_or_none()
+    
+    if not inv or inv.used_at or inv.is_revoked or inv.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=404, detail="Convite inválido, expirado ou já utilizado.")
+        
+    return {
+        "target_role": inv.target_role,
+        "expires_at": inv.expires_at
+    }
+
+class UserRegister(BaseModel):
+    token: str
+    name: str
+    email: str
+    password: str
+
+@app.post("/register")
+async def register_user(req: UserRegister, db: AsyncSession = Depends(get_db)):
+    from models import InvitationModel
+    result = await db.execute(select(InvitationModel).where(InvitationModel.token == req.token))
+    inv = result.scalar_one_or_none()
+    
+    if not inv or inv.used_at or inv.is_revoked or inv.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Convite inválido ou expirado.")
+    
+    # Verifica se o email já existe
+    result = await db.execute(select(UserModel).where(UserModel.email == req.email))
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Email já cadastrado.")
+    
+    new_user = UserModel(
+        name=req.name,
+        email=req.email,
+        password=get_password_hash(req.password),
+        role=inv.target_role,
+        status="ATIVO"
+    )
+    db.add(new_user)
+    
+    inv.used_at = datetime.utcnow()
+    
+    await db.commit()
+    await db.refresh(new_user)
+    
+    from services.audit_service import AuditLogger
+    await AuditLogger.log(db, "REGISTER_USER", {"email": new_user.email, "role": new_user.role}, user_id=new_user.id)
+    
+    return {"success": True, "user_id": new_user.id}
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"ERRO GLOBAL CAPTURADO: {str(exc)}", exc_info=True)
-    return Response(
-        content=json.dumps({"detail": "Erro interno no servidor", "error": str(exc)}),
+    return JSONResponse(
         status_code=500,
-        media_type="application/json"
+        content={"detail": "Erro interno no servidor", "error": str(exc)}
     )
 
 # Configuração de CORS Restrito
@@ -348,9 +625,9 @@ async def ping():
 
 from background_tasks import router as background_tasks_router
 
-app.include_router(import_router)
-app.include_router(prompt_lab_router)
-app.include_router(analysis_router)
+app.include_router(import_router, dependencies=[Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value]))])
+app.include_router(prompt_lab_router, dependencies=[Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value]))])
+app.include_router(analysis_router, dependencies=[Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value]))])
 app.include_router(background_tasks_router)
 
 # Servir arquivos do Widget (JS e CSS)
@@ -440,9 +717,6 @@ class MessageResponse(BaseModel):
     model_used: str | None = None
     error: bool = False
 
-class LoginRequest(BaseModel):
-    email: str
-    password: str
 
 async def get_active_config(db: AsyncSession, agent_id: int | None = None) -> AgentConfigModel:
     if agent_id:
@@ -533,12 +807,12 @@ async def get_google_status(agent_id: int | None = None, db: AsyncSession = Depe
     return {"connected": token is not None}
 
 # --- KNOWLEDGE BASE ENDPOINTS ---
-@app.get("/knowledge-bases", response_model=List[KnowledgeBase], dependencies=[Depends(verify_api_key)])
+@app.get("/knowledge-bases", response_model=List[KnowledgeBase], dependencies=[Depends(verify_api_key), Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value, UserRole.USUARIO_ADMIN.value, UserRole.USUARIO.value]))])
 async def list_knowledge_bases(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(KnowledgeBaseModel).options(selectinload(KnowledgeBaseModel.items)))
     return result.scalars().all()
 
-@app.post("/knowledge-bases", response_model=KnowledgeBase, dependencies=[Depends(verify_api_key)])
+@app.post("/knowledge-bases", response_model=KnowledgeBase, dependencies=[Depends(verify_api_key), Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value]))])
 async def create_knowledge_base(kb: KnowledgeBase, db: AsyncSession = Depends(get_db)):
     # Check for duplicate name
     result = await db.execute(select(KnowledgeBaseModel).where(KnowledgeBaseModel.name == kb.name))
@@ -561,7 +835,7 @@ async def create_knowledge_base(kb: KnowledgeBase, db: AsyncSession = Depends(ge
         updated_at=db_kb.updated_at
     )
 
-@app.get("/knowledge-bases/{kb_id}", response_model=KnowledgeBase, dependencies=[Depends(verify_api_key)])
+@app.get("/knowledge-bases/{kb_id}", response_model=KnowledgeBase, dependencies=[Depends(verify_api_key), Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value, UserRole.USUARIO_ADMIN.value, UserRole.USUARIO.value]))])
 async def get_knowledge_base(kb_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(KnowledgeBaseModel)
@@ -573,7 +847,7 @@ async def get_knowledge_base(kb_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Knowledge Base not found")
     return kb
 
-@app.put("/knowledge-bases/{kb_id}", response_model=KnowledgeBase, dependencies=[Depends(verify_api_key)])
+@app.put("/knowledge-bases/{kb_id}", response_model=KnowledgeBase, dependencies=[Depends(verify_api_key), Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value]))])
 async def update_knowledge_base(kb_id: int, kb: KnowledgeBase, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(KnowledgeBaseModel).where(KnowledgeBaseModel.id == kb_id))
     db_kb = result.scalars().first()
@@ -617,7 +891,7 @@ async def update_knowledge_base(kb_id: int, kb: KnowledgeBase, db: AsyncSession 
         updated_at=db_kb.updated_at
     )
 
-@app.delete("/knowledge-bases/{kb_id}", dependencies=[Depends(verify_api_key)])
+@app.delete("/knowledge-bases/{kb_id}", dependencies=[Depends(verify_api_key), Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value]))])
 async def delete_knowledge_base(kb_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(KnowledgeBaseModel).where(KnowledgeBaseModel.id == kb_id))
     kb = result.scalars().first()
@@ -2182,13 +2456,13 @@ async def scrape_kb_url(kb_id: int, url_data: dict, db: AsyncSession = Depends(g
 class CoverageCheckRequest(BaseModel):
     questions: List[str]
 
-@app.post("/knowledge-bases/{kb_id}/coverage", dependencies=[Depends(verify_api_key)])
+@app.post("/knowledge-bases/{kb_id}/coverage", dependencies=[Depends(verify_api_key), Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value]))])
 async def check_coverage(kb_id: int, payload: CoverageCheckRequest, db: AsyncSession = Depends(get_db)):
     results = await calculate_coverage(db, payload.questions, kb_id)
     return {"results": results}
 
 # --- AGENT MANAGEMENT UPDATED ---
-@app.get("/agents", response_model=List[AgentConfig], dependencies=[Depends(verify_api_key)])
+@app.get("/agents", response_model=List[AgentConfig], dependencies=[Depends(verify_api_key), Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value, UserRole.USUARIO_ADMIN.value, UserRole.USUARIO.value]))])
 async def list_agents(db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(AgentConfigModel)
@@ -2238,7 +2512,7 @@ async def list_agents(db: AsyncSession = Depends(get_db)):
         ) for a in db_agents
     ]
 
-@app.post("/agents", response_model=AgentConfig, dependencies=[Depends(verify_api_key)])
+@app.post("/agents", response_model=AgentConfig, dependencies=[Depends(verify_api_key), Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value]))])
 async def create_agent(config: AgentConfig, db: AsyncSession = Depends(get_db)):
     db_config = AgentConfigModel(
         name=config.name,
@@ -2437,7 +2711,7 @@ async def get_agent(agent_id: int, db: AsyncSession = Depends(get_db)):
         model_settings=json.loads(db_config.model_settings) if db_config.model_settings else {}
     )
 
-@app.put("/agents/{agent_id}", response_model=AgentConfig, dependencies=[Depends(verify_api_key)])
+@app.put("/agents/{agent_id}", response_model=AgentConfig, dependencies=[Depends(verify_api_key), Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value]))])
 async def update_agent(agent_id: int, config: AgentConfig, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(AgentConfigModel)
@@ -2587,7 +2861,7 @@ async def list_agent_drafts(agent_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(PromptDraftModel).where(PromptDraftModel.agent_id == agent_id).order_by(PromptDraftModel.created_at.desc()))
     return result.scalars().all()
 
-@app.post("/agents/{agent_id}/toggle", response_model=AgentConfig, dependencies=[Depends(verify_api_key)])
+@app.post("/agents/{agent_id}/toggle", response_model=AgentConfig, dependencies=[Depends(verify_api_key), Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value, UserRole.USUARIO_ADMIN.value]))])
 async def toggle_agent_status(agent_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(AgentConfigModel).where(AgentConfigModel.id == agent_id).options(selectinload(AgentConfigModel.tools)))
     db_config = result.scalars().first()
@@ -2641,7 +2915,7 @@ async def toggle_agent_status(agent_id: int, db: AsyncSession = Depends(get_db))
         model_settings=json.loads(db_config.model_settings) if db_config.model_settings else {}
     )
 
-@app.post("/agents/{agent_id}/duplicate", response_model=AgentConfig, dependencies=[Depends(verify_api_key)])
+@app.post("/agents/{agent_id}/duplicate", response_model=AgentConfig, dependencies=[Depends(verify_api_key), Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value]))])
 async def duplicate_agent(agent_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(AgentConfigModel).where(AgentConfigModel.id == agent_id).options(selectinload(AgentConfigModel.tools)))
     original = result.scalars().first()
@@ -2740,7 +3014,7 @@ async def duplicate_agent(agent_id: int, db: AsyncSession = Depends(get_db)):
         model_settings=json.loads(new_agent.model_settings) if new_agent.model_settings else {}
     )
 
-@app.post("/agents/{agent_id}/drafts", response_model=PromptDraft, dependencies=[Depends(verify_api_key)])
+@app.post("/agents/{agent_id}/drafts", response_model=PromptDraft, dependencies=[Depends(verify_api_key), Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value]))])
 async def create_agent_draft(agent_id: int, draft: PromptDraft, db: AsyncSession = Depends(get_db)):
     db_draft = PromptDraftModel(
         agent_id=agent_id,
@@ -2754,7 +3028,7 @@ async def create_agent_draft(agent_id: int, draft: PromptDraft, db: AsyncSession
     await db.refresh(db_draft)
     return db_draft
 
-@app.delete("/drafts/{draft_id}", dependencies=[Depends(verify_api_key)])
+@app.delete("/drafts/{draft_id}", dependencies=[Depends(verify_api_key), Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value]))])
 async def delete_draft(draft_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(PromptDraftModel).where(PromptDraftModel.id == draft_id))
     draft = result.scalars().first()
@@ -2763,7 +3037,7 @@ async def delete_draft(draft_id: int, db: AsyncSession = Depends(get_db)):
         await db.commit()
     return {"message": "Draft deleted"}
     
-@app.put("/drafts/{draft_id}", response_model=PromptDraft, dependencies=[Depends(verify_api_key)])
+@app.put("/drafts/{draft_id}", response_model=PromptDraft, dependencies=[Depends(verify_api_key), Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value]))])
 async def update_draft(draft_id: int, draft: PromptDraft, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(PromptDraftModel).where(PromptDraftModel.id == draft_id))
     db_draft = result.scalars().first()
@@ -2779,7 +3053,7 @@ async def update_draft(draft_id: int, draft: PromptDraft, db: AsyncSession = Dep
     await db.refresh(db_draft)
     return db_draft
 
-@app.delete("/agents/{agent_id}", dependencies=[Depends(verify_api_key)])
+@app.delete("/agents/{agent_id}", dependencies=[Depends(verify_api_key), Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value]))])
 async def delete_agent(agent_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(AgentConfigModel).where(AgentConfigModel.id == agent_id))
     agent = result.scalars().first()
@@ -4714,7 +4988,8 @@ async def public_unanswered_questions(token: str, db: AsyncSession = Depends(get
     }
 
 @app.get("/settings/public-tokens")
-async def get_public_tokens(db: AsyncSession = Depends(get_db), current_user: str = Depends(get_current_user)):
+async def get_public_tokens(db: AsyncSession = Depends(get_db), current_user_data: dict = Depends(get_current_user)):
+    current_user = current_user_data["email"]
     """Retorna os tokens públicos atuais ou gera novos se não existirem."""
     keys = ["PUBLIC_ACCESS_TOKEN_SUPPORT", "PUBLIC_ACCESS_TOKEN_UNANSWERED"]
     results = {}
@@ -4736,7 +5011,8 @@ async def get_public_tokens(db: AsyncSession = Depends(get_db), current_user: st
     return results
 
 @app.post("/settings/public-tokens/rotate")
-async def rotate_public_token(target: str, db: AsyncSession = Depends(get_db), current_user: str = Depends(get_current_user)):
+async def rotate_public_token(target: str, db: AsyncSession = Depends(get_db), current_user_data: dict = Depends(get_current_user)):
+    current_user = current_user_data["email"]
     """Rotaciona um token público específico."""
     key = f"PUBLIC_ACCESS_TOKEN_{target.upper()}"
     import uuid

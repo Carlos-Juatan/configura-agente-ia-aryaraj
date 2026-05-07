@@ -59,5 +59,9 @@ export const api = {
             fetchOptions.body = body instanceof FormData ? body : JSON.stringify(body);
         }
         return this.request(path, fetchOptions);
+    },
+
+    patch(path, body, options = {}) {
+        return this.request(path, { ...options, method: 'PATCH', body: body instanceof FormData ? body : JSON.stringify(body) });
     }
 };

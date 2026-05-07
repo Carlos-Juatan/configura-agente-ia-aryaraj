@@ -263,14 +263,22 @@ class GlobalContextVariableModel(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+import enum
+
+class UserRole(str, enum.Enum):
+    SUPERADMIN = "SUPERADMIN"
+    ADMIN = "ADMIN"
+    USUARIO_ADMIN = "USUARIO_ADMIN"
+    USUARIO = "USUARIO"
+
 class UserModel(Base):
     __tablename__ = "users"
     
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
-    password = Column(String, nullable=False) # Nota: Em produção usar hashbcryt. Aqui mantemos simples conforme solicitado.
-    role = Column(String, default="Usuário") # "Super Admin", "Admin", "Usuário"
+    password = Column(String, nullable=False)
+    role = Column(String, default=UserRole.USUARIO.value) # "SUPERADMIN", "ADMIN", "USUARIO_ADMIN", "USUARIO"
     status = Column(String, default="ATIVO") # "ATIVO", "INATIVO"
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -313,3 +321,29 @@ class BackgroundProcessLog(Base):
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class InvitationModel(Base):
+    __tablename__ = "invitations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    token = Column(String, unique=True, index=True, nullable=False)
+    target_role = Column(String, nullable=False)
+    created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+    is_revoked = Column(Boolean, default=False)
+
+    created_by = relationship("UserModel")
+
+class AuditLogModel(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    action = Column(String, nullable=False) # Ex: "PROMOTE_USER", "CREATE_INVITE"
+    details = Column(JSON, default={})
+    ip_address = Column(String, nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("UserModel")

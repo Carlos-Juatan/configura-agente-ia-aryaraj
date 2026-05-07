@@ -1,13 +1,14 @@
-
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import ConfirmModal from './ConfirmModal';
+import { USER_ROLES } from '../constants/auth';
+import { useRole } from '../hooks/useRole';
+import GlobalContextManager from './GlobalContextManager';
 
 function AgentCard({ agent, kbList, onDelete, onDuplicate, onPause, onShare }) {
     const navigate = useNavigate();
-    const userRole = localStorage.getItem('user_role') || 'Usuário';
-    const isUser = userRole === 'Usuário';
+    const { isTeam, isUsuarioAdmin, isUsuario } = useRole();
 
     return (
         <div className={`modern-agent-card ${!agent.is_active ? 'inactive' : ''}`}>
@@ -16,7 +17,7 @@ function AgentCard({ agent, kbList, onDelete, onDuplicate, onPause, onShare }) {
                     className={`status-indicator ${agent.is_active ? 'active' : 'paused'}`}
                     title={agent.is_active ? 'Online' : 'Pausado'}
                 ></div>
-                {!isUser && (
+                {(isTeam || isUsuarioAdmin) && (
                     <div className="card-actions-top">
                         <button onClick={(e) => {
                             e.stopPropagation();
@@ -25,11 +26,14 @@ function AgentCard({ agent, kbList, onDelete, onDuplicate, onPause, onShare }) {
                                 .then(() => onShare('Link copiado com sucesso!', 'success'))
                                 .catch(() => onShare('Erro ao copiar link.', 'error'));
                         }} title="Compartilhar Link Público">🔗</button>
-                        <button onClick={() => onDuplicate(agent)} title="Duplicar">📑</button>
+                        
+                        {isTeam && <button onClick={() => onDuplicate(agent)} title="Duplicar">📑</button>}
+                        
                         <button onClick={() => onPause(agent)} title={agent.is_active ? 'Pausar' : 'Ativar'}>
                             {agent.is_active ? '⏸️' : '▶️'}
                         </button>
-                        <button onClick={(e) => onDelete(e, agent.id, agent.name)} title="Excluir" className="delete-action">🗑️</button>
+                        
+                        {isTeam && <button onClick={(e) => onDelete(e, agent.id, agent.name)} title="Excluir" className="delete-action">🗑️</button>}
                     </div>
                 )}
             </div>
@@ -52,8 +56,8 @@ function AgentCard({ agent, kbList, onDelete, onDuplicate, onPause, onShare }) {
                 </div>
             </div>
 
-            <div className={`card-footer ${isUser ? 'user-view' : ''}`}>
-                {!isUser && (
+            <div className={`card-footer ${isUsuario ? 'user-view' : ''}`}>
+                {isTeam && (
                     <button onClick={() => navigate(`/agent/${agent.id}`)} className="btn-primary">
                         ⚙️ Configurar
                     </button>
@@ -64,7 +68,7 @@ function AgentCard({ agent, kbList, onDelete, onDuplicate, onPause, onShare }) {
                     className="btn-secondary"
                     style={{
                         opacity: agent.is_active ? 1 : 0.5,
-                        gridColumn: isUser ? '1 / span 2' : 'auto'
+                        gridColumn: isUsuario ? '1 / span 2' : 'auto'
                     }}
                 >
                     💬 Chat
@@ -86,10 +90,7 @@ function StatCard({ title, value, icon, gradient }) {
     );
 }
 
-import GlobalContextManager from './GlobalContextManager';
-
 function Dashboard() {
-    // ... rest of state ...
     const [agents, setAgents] = useState([]);
     const [filteredAgents, setFilteredAgents] = useState([]);
     const [kbList, setKbList] = useState([]);
@@ -98,6 +99,11 @@ function Dashboard() {
     const [error, setError] = useState(null);
     const [confirmConfig, setConfirmConfig] = useState({ isOpen: false, agentId: null, agentName: '', type: 'delete' });
     const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+    const [activeTab, setActiveTab] = useState('agents');
+
+    const { isSuperAdmin, isTeam, isUsuario, isUsuarioAdmin } = useRole();
+    const currentName = localStorage.getItem('user_name') || 'Usuário';
+    const navigate = useNavigate();
 
     const showToast = (message, type = 'success') => {
         setToast({ show: true, message, type });
@@ -114,7 +120,6 @@ function Dashboard() {
         }
     };
 
-    // Filters
     const [searchTerm, setSearchTerm] = useState('');
     const [modelFilter, setModelFilter] = useState('');
 
@@ -191,14 +196,14 @@ function Dashboard() {
                 .catch(err => showToast('Erro de conexão ao excluir', 'error'))
                 .finally(() => setConfirmConfig({ isOpen: false, agentId: null, agentName: '', type: 'delete' }));
         } else {
-            // Duplicate
             api.post(`/agents/${agentId}/duplicate`)
                 .then(res => res.json())
                 .then(created => {
                     setAgents(prev => [...prev, created]);
                     refreshStats();
+                    showToast('Agente duplicado com sucesso!', 'success');
                 })
-                .catch(err => console.error("Erro ao duplicar", err))
+                .catch(err => showToast('Erro ao duplicar agente', 'error'))
                 .finally(() => setConfirmConfig({ isOpen: false, agentId: null, agentName: '', type: 'duplicate' }));
         }
     };
@@ -217,10 +222,7 @@ function Dashboard() {
     if (loading) return <div className="loading-screen">Carregando seu painel de controle...</div>;
 
     const uniqueModels = [...new Set(agents.map(a => a.model))];
-
-    const userRole = localStorage.getItem('user_role') || 'Usuário';
-    const isUser = userRole === 'Usuário';
-    const currentName = localStorage.getItem('user_name') || 'Usuário';
+    const showContextTab = isTeam; // Apenas Super Admin e Admin
 
     return (
         <div className="modern-dashboard">
@@ -229,122 +231,132 @@ function Dashboard() {
                     <h1>Olá, {currentName} 👋</h1>
                     <p className="subtitle">Gerencie sua frota de agentes inteligentes</p>
                 </div>
-                {!isUser && (
+                {isTeam && (
                     <Link to="/agent/new" className="create-agent-btn-shiny">
                         + Novo Agente
                     </Link>
                 )}
             </header>
 
-            {!isUser && (
-                <>
-                    {/* KPI Stats Row */}
-                    <div className="stats-row fade-in">
-                        <StatCard
-                            title="Agentes Ativos"
-                            value={stats.total_agents}
-                            icon="🤖"
-                            gradient="linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(168, 85, 247, 0.1))"
-                        />
-                        <StatCard
-                            title="Bases Conhecimento"
-                            value={stats.total_knowledge_bases}
-                            icon="📚"
-                            gradient="linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(147, 51, 234, 0.1))"
-                        />
-                        <StatCard
-                            title="Total Interações"
-                            value={stats.total_interactions}
-                            icon="💬"
-                            gradient="linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(5, 150, 105, 0.1))"
-                        />
-                        <StatCard
-                            title="Custo Estimado"
-                            value={`R$ ${stats.total_cost.toFixed(2)}`}
-                            icon="💰"
-                            gradient="linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(217, 119, 6, 0.1))"
-                        />
-                    </div>
-
-                    <GlobalContextManager />
-                </>
-            )}
-
-            {/* Filters & Search */}
-            <div className="filter-bar fade-in" style={{ animationDelay: '0.1s' }}>
-                <div className="search-wrapper">
-                    <svg className="search-icon-svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="11" cy="11" r="8"></circle>
-                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                    </svg>
-                    <input
-                        type="text"
-                        placeholder="Buscar agente..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
+            {!isUsuario && (
+                <div className="stats-row fade-in">
+                    <StatCard
+                        title="Agentes Ativos"
+                        value={stats.total_agents}
+                        icon="🤖"
+                        gradient="linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(168, 85, 247, 0.1))"
+                    />
+                    <StatCard
+                        title="Bases Conhecimento"
+                        value={stats.total_knowledge_bases}
+                        icon="📚"
+                        gradient="linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(147, 51, 234, 0.1))"
+                    />
+                    <StatCard
+                        title="Total Interações"
+                        value={stats.total_interactions}
+                        icon="💬"
+                        gradient="linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(5, 150, 105, 0.1))"
+                    />
+                    <StatCard
+                        title="Custo Estimado"
+                        value={`R$ ${stats.total_cost.toFixed(2)}`}
+                        icon="💰"
+                        gradient="linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(217, 119, 6, 0.1))"
                     />
                 </div>
-                <select
-                    value={modelFilter}
-                    onChange={(e) => setModelFilter(e.target.value)}
-                    className="filter-select"
-                >
-                    <option value="">Todos os Modelos</option>
-                    {uniqueModels.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-                <button
-                    className="refresh-btn-dashboard"
-                    onClick={fetchData}
-                    title="Recarregar agentes"
-                    style={{
-                        background: 'rgba(255,255,255,0.05)',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        color: 'white',
-                        padding: '0 15px',
-                        borderRadius: '12px',
-                        cursor: 'pointer',
-                        height: '50px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        transition: 'all 0.2s'
-                    }}
-                    onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-                    onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
-                >
-                    🔄
-                </button>
-            </div>
+            )}
 
-            {/* Agents Grid */}
-            <div className="agents-grid-responsive fade-in" style={{ animationDelay: '0.2s' }}>
-                {error ? (
-                    <div className="empty-state-modern error-state">
-                        <span style={{ fontSize: '3rem' }}>⚠️</span>
-                        <h3>Ops! Algo deu errado</h3>
-                        <p>{error}</p>
-                        <button onClick={fetchData} className="create-agent-btn-shiny" style={{ marginTop: '1rem', border: 'none', cursor: 'pointer' }}>
-                            Tentar Novamente
-                        </button>
+            {/* Tab Navigation (Visible only if more than one tab exists) */}
+            {showContextTab && (
+                <div className="dashboard-tabs">
+                    <button 
+                        className={`tab-btn ${activeTab === 'agents' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('agents')}
+                    >
+                        🤖 Meus Agentes
+                    </button>
+                    <button 
+                        className={`tab-btn ${activeTab === 'context' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('context')}
+                    >
+                        🌍 Variáveis Globais
+                    </button>
+                </div>
+            )}
+
+            <div className="tab-content">
+                {activeTab === 'agents' && (
+                    <div className="fade-in">
+                        {/* Filters & Search */}
+                        <div className="filter-bar">
+                            <div className="search-wrapper">
+                                <svg className="search-icon-svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <circle cx="11" cy="11" r="8"></circle>
+                                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                                </svg>
+                                <input
+                                    type="text"
+                                    placeholder="Buscar agente..."
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                />
+                            </div>
+                            <select
+                                value={modelFilter}
+                                onChange={(e) => setModelFilter(e.target.value)}
+                                className="filter-select"
+                            >
+                                <option value="">Todos os Modelos</option>
+                                {uniqueModels.map(m => <option key={m} value={m}>{m}</option>)}
+                            </select>
+                            <button
+                                className="refresh-btn-dashboard"
+                                onClick={fetchData}
+                                title="Recarregar agentes"
+                            >
+                                🔄
+                            </button>
+                        </div>
+
+                        {/* Agents Grid */}
+                        <div className="agents-grid-responsive">
+                            {error ? (
+                                <div className="empty-state-modern error-state">
+                                    <span style={{ fontSize: '3rem' }}>⚠️</span>
+                                    <h3>Ops! Algo deu errado</h3>
+                                    <p>{error}</p>
+                                    <button onClick={fetchData} className="create-agent-btn-shiny" style={{ marginTop: '1rem', border: 'none', cursor: 'pointer' }}>
+                                        Tentar Novamente
+                                    </button>
+                                </div>
+                            ) : filteredAgents.length === 0 ? (
+                                <div className="empty-state-modern">
+                                    <span style={{ fontSize: '3rem', opacity: 0.5 }}>🤷‍♂️</span>
+                                    <h3>Nenhum agente encontrado</h3>
+                                    <p>Tente ajustar seus filtros ou crie um novo agente.</p>
+                                </div>
+                            ) : (
+                                filteredAgents.map(agent => (
+                                    <AgentCard
+                                        key={agent.id}
+                                        agent={agent}
+                                        kbList={kbList}
+                                        onShare={showToast}
+                                        onDelete={handleDeleteClick}
+                                        onDuplicate={handleDuplicateClick}
+                                        onPause={handlePause}
+                                    />
+                                ))
+                            )}
+                        </div>
                     </div>
-                ) : filteredAgents.length === 0 ? (
-                    <div className="empty-state-modern">
-                        <span style={{ fontSize: '3rem', opacity: 0.5 }}>🤷‍♂️</span>
-                        <h3>Nenhum agente encontrado</h3>
-                        <p>Tente ajustar seus filtros ou crie um novo agente.</p>
+                )}
+
+                {activeTab === 'context' && showContextTab && (
+                    <div className="fade-in">
+                        <GlobalContextManager />
                     </div>
-                ) : (
-                    filteredAgents.map(agent => (
-                        <AgentCard
-                            key={agent.id}
-                            agent={agent}
-                            kbList={kbList}
-                            onShare={showToast}
-                            onDelete={handleDeleteClick}
-                            onDuplicate={handleDuplicateClick}
-                            onPause={handlePause}
-                        />
-                    ))
                 )}
             </div>
 
@@ -385,7 +397,6 @@ function Dashboard() {
                     font-size: 1rem;
                 }
                 
-                /* Stats Row */
                 .stats-row {
                     display: grid;
                     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -428,7 +439,38 @@ function Dashboard() {
                     color: #94a3b8;
                 }
 
-                /* Filter Bar */
+                .dashboard-tabs {
+                    display: flex;
+                    gap: 1.5rem;
+                    margin-bottom: 2rem;
+                    border-bottom: 1px solid rgba(255,255,255,0.05);
+                    padding-bottom: 0.5rem;
+                }
+                .dashboard-tabs .tab-btn {
+                    background: none;
+                    border: none;
+                    color: #64748b;
+                    font-size: 1rem;
+                    font-weight: 600;
+                    cursor: pointer;
+                    padding-bottom: 0.8rem;
+                    position: relative;
+                    transition: all 0.3s;
+                }
+                .dashboard-tabs .tab-btn.active {
+                    color: #6366f1;
+                }
+                .dashboard-tabs .tab-btn.active::after {
+                    content: '';
+                    position: absolute;
+                    bottom: -1px;
+                    left: 0;
+                    width: 100%;
+                    height: 2px;
+                    background: #6366f1;
+                    box-shadow: 0 0 10px rgba(99, 102, 241, 0.5);
+                }
+
                 .filter-bar {
                     display: flex;
                     gap: 1.5rem;
@@ -471,11 +513,6 @@ function Dashboard() {
                 .search-wrapper input::placeholder {
                     color: rgba(255,255,255,0.3);
                 }
-                .search-wrapper input:focus {
-                    background: none !important;
-                    border: none !important;
-                    box-shadow: none !important;
-                }
                 .filter-select {
                     flex: 1;
                     background: rgba(15, 23, 42, 0.6);
@@ -485,18 +522,32 @@ function Dashboard() {
                     border-radius: 12px;
                     cursor: pointer;
                     outline: none;
-                    height: 50px; /* Match height */
+                    height: 50px;
                     font-size: 0.95rem;
                 }
+                .refresh-btn-dashboard {
+                    background: rgba(255,255,255,0.05);
+                    border: 1px solid rgba(255,255,255,0.1);
+                    color: white;
+                    padding: 0 15px;
+                    border-radius: 12px;
+                    cursor: pointer;
+                    height: 50px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    transition: all 0.2s;
+                }
+                .refresh-btn-dashboard:hover {
+                    background: rgba(255,255,255,0.1);
+                }
 
-                /* Responsive Grid */
                 .agents-grid-responsive {
                     display: grid;
                     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
                     gap: 1.5rem;
                 }
 
-                /* Modern Agent Card */
                 .modern-agent-card {
                     background: rgba(30, 41, 59, 0.4);
                     border: 1px solid rgba(255, 255, 255, 0.05);
@@ -552,10 +603,6 @@ function Dashboard() {
                 .modern-agent-card.inactive {
                     background: rgba(30, 41, 59, 0.2);
                     filter: grayscale(0.5);
-                    border-color: rgba(255, 255, 255, 0.02);
-                }
-                .modern-agent-card.inactive h3 {
-                    opacity: 0.6;
                 }
                 .card-actions-top {
                     display: flex;

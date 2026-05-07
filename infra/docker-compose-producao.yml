@@ -98,7 +98,7 @@ services:
           memory: 4096M
 
   frontend:
-    image: ${IMAGE_BASE}-${FRONTEND_IMAGE_SUFFIX:-frontend}
+    image: ${IMAGE_BASE}-frontend
     hostname: "{{.Service.Name}}.{{.Task.Slot}}"
     networks:
       - network_swarm_public

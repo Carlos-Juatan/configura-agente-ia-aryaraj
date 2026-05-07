@@ -1,0 +1,13 @@
+export const USER_ROLES = {
+  SUPERADMIN: 'SUPERADMIN',
+  ADMIN: 'ADMIN',
+  USUARIO_ADMIN: 'USUARIO_ADMIN',
+  USUARIO: 'USUARIO',
+};
+
+export const ROLE_LABELS = {
+  [USER_ROLES.SUPERADMIN]: 'Super Admin',
+  [USER_ROLES.ADMIN]: 'Admin',
+  [USER_ROLES.USUARIO_ADMIN]: 'Usuário Admin',
+  [USER_ROLES.USUARIO]: 'Usuário',
+};

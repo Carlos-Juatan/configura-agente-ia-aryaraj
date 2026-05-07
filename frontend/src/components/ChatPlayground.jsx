@@ -3,10 +3,10 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api/client';
 import { API_URL } from '../config';
 import ConfirmModal from './ConfirmModal';
-
-
+import { useRole } from '../hooks/useRole';
 
 const ChatPlayground = () => {
+    const { isTeam, isUsuarioAdmin, isSuperAdmin, isAdmin } = useRole();
     const location = useLocation();
     const queryParams = new URLSearchParams(location.search);
     const initialAgentId = queryParams.get('agentId');
@@ -1617,7 +1617,7 @@ const ChatPlayground = () => {
             />
             <AnalysisModal />
             {/* Sidebar */}
-            {!isRegularUser && !isViewMode && (
+            {!isViewMode && (
                 <aside className="playground-sidebar">
                     <div className="sidebar-tabs">
                         <button
@@ -1640,26 +1640,28 @@ const ChatPlayground = () => {
                             <>
                                 <div className="sidebar-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                     <div>
-                                        <h3>🧪 Laboratório</h3>
-                                        <p>Ambiente Avançado</p>
+                                        <h3>{isTeam ? '🧪 Laboratório' : '📊 Estatísticas'}</h3>
+                                        <p>{isTeam ? 'Ambiente Avançado' : 'Dados da Conversa'}</p>
                                     </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowGuide(true)}
-                                        title="Guia do Playground"
-                                        style={{
-                                            display: 'flex', alignItems: 'center', gap: '4px',
-                                            background: 'rgba(99,102,241,0.1)',
-                                            border: '1px solid rgba(99,102,241,0.25)',
-                                            color: '#a5b4fc', borderRadius: '8px',
-                                            padding: '5px 10px', fontSize: '0.72rem', fontWeight: 700,
-                                            cursor: 'pointer', transition: 'all 0.2s ease', flexShrink: 0,
-                                        }}
-                                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.2)'; e.currentTarget.style.transform = 'scale(1.05)'; }}
-                                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.1)'; e.currentTarget.style.transform = 'scale(1)'; }}
-                                    >
-                                        <span>📖</span><span>Guia</span>
-                                    </button>
+                                    {isTeam && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowGuide(true)}
+                                            title="Guia do Playground"
+                                            style={{
+                                                display: 'flex', alignItems: 'center', gap: '4px',
+                                                background: 'rgba(99,102,241,0.1)',
+                                                border: '1px solid rgba(99,102,241,0.25)',
+                                                color: '#a5b4fc', borderRadius: '8px',
+                                                padding: '5px 10px', fontSize: '0.72rem', fontWeight: 700,
+                                                cursor: 'pointer', transition: 'all 0.2s ease', flexShrink: 0,
+                                            }}
+                                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.2)'; e.currentTarget.style.transform = 'scale(1.05)'; }}
+                                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.1)'; e.currentTarget.style.transform = 'scale(1)'; }}
+                                        >
+                                            <span>📖</span><span>Guia</span>
+                                        </button>
+                                    )}
                                 </div>
 
 
@@ -1674,16 +1676,18 @@ const ChatPlayground = () => {
                                     </div>
                                 </div>
 
-                                <div className="battle-toggle">
-                                    <label className="toggle-switch">
-                                        <input type="checkbox" checked={isBattleMode} onChange={(e) => {
-                                            setIsBattleMode(e.target.checked);
-                                            if (e.target.checked) setIsTesterMode(false);
-                                        }} />
-                                        <span className="slider round"></span>
-                                    </label>
-                                    <span>🧪 Arena A/B Testing</span>
-                                </div>
+                                {isTeam && (
+                                    <div className="battle-toggle">
+                                        <label className="toggle-switch">
+                                            <input type="checkbox" checked={isBattleMode} onChange={(e) => {
+                                                setIsBattleMode(e.target.checked);
+                                                if (e.target.checked) setIsTesterMode(false);
+                                            }} />
+                                            <span className="slider round"></span>
+                                        </label>
+                                        <span>🧪 Arena A/B Testing</span>
+                                    </div>
+                                )}
 
                                 {/* SENTIMENT METER GLOBAL */}
                                 <div className="sentiment-meter" style={{ marginTop: '15px', padding: '10px', background: 'rgba(0,0,0,0.2)', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.05)' }}>
@@ -1702,180 +1706,194 @@ const ChatPlayground = () => {
                                 </div>
 
                                 {/* --- UI DO AGENTE TESTER --- */}
-                                <div className={`tester-config-box ${isTesterMode ? 'active' : ''}`} style={{
-                                    marginTop: '1rem',
-                                    padding: '12px',
-                                    background: isTesterMode ? 'rgba(244, 63, 94, 0.05)' : 'rgba(255,255,255,0.02)',
-                                    borderRadius: '12px',
-                                    border: `1px solid ${isTesterMode ? 'rgba(244, 63, 94, 0.3)' : 'rgba(255,255,255,0.05)'}`,
-                                    transition: 'all 0.3s ease'
-                                }}>
-                                    <div className="battle-toggle" style={{ marginBottom: isTesterMode ? '12px' : '0' }}>
-                                        <label className="toggle-switch">
-                                            <input type="checkbox" checked={isTesterMode} onChange={(e) => {
-                                                setIsTesterMode(e.target.checked);
-                                                if (e.target.checked) setIsBattleMode(false);
-                                            }} />
-                                            <span className="slider round" style={{ backgroundColor: isTesterMode ? '#f43f5e' : '' }}></span>
-                                        </label>
-                                        <span style={{ fontWeight: isTesterMode ? 'bold' : 'normal', color: isTesterMode ? '#fb7185' : 'inherit' }}>
-                                            🎯 Stress Test (Tester AI)
-                                        </span>
-                                    </div>
-
-                                    {isTesterMode && (
-                                        <div className="tester-controls fade-in">
-                                            <div className="control-group">
-                                                <label style={{ fontSize: '0.75rem', opacity: 0.7 }}>PERSONA DO TESTADOR</label>
-                                                <select
-                                                    value={testerPersona}
-                                                    onChange={(e) => setTesterPersona(e.target.value)}
-                                                    style={{ background: 'rgba(0,0,0,0.2)', borderColor: 'rgba(244, 63, 94, 0.2)' }}
-                                                >
-                                                    {Object.entries(TESTER_PERSONAS).map(([id, p]) => (
-                                                        <option key={id} value={id}>{p.name}</option>
-                                                    ))}
-                                                </select>
-                                                {TESTER_PERSONAS[testerPersona]?.description && (
-                                                    <p className="fade-in" style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '6px', lineHeight: '1.4', background: 'rgba(244, 63, 94, 0.05)', padding: '6px 10px', borderRadius: '6px', borderLeft: '2px solid #f43f5e' }}>
-                                                        {TESTER_PERSONAS[testerPersona].description}
-                                                    </p>
-                                                )}
-                                            </div>
-
-                                            {testerPersona === 'custom' && (
-                                                <div className="control-group" style={{ marginTop: '8px' }}>
-                                                    <label style={{ fontSize: '0.7rem', opacity: 0.7 }}>PROMPT DA PERSONA CUSTOMIZADA</label>
-                                                    <textarea
-                                                        value={customPersona}
-                                                        onChange={(e) => setCustomPersona(e.target.value)}
-                                                        placeholder="Ex: Você é um médico aposentado que não tem paciência para tecnologia..."
-                                                        style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(244, 63, 94, 0.2)', borderRadius: '8px', color: 'white', padding: '10px', fontSize: '0.8rem', width: '100%', minHeight: '80px' }}
-                                                    />
-                                                </div>
-                                            )}
-
-                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '10px' }}>
-                                                <div className="control-group" style={{ marginBottom: 0 }}>
-                                                    <label style={{ fontSize: '0.7rem', opacity: 0.7 }}>Nº MENSAGENS</label>
-                                                    <input
-                                                        type="number"
-                                                        min="1"
-                                                        max="50"
-                                                        value={testerMessageCount}
-                                                        onChange={(e) => setTesterMessageCount(Number(e.target.value))}
-                                                        style={{ background: 'rgba(0,0,0,0.2)', borderColor: 'rgba(244, 63, 94, 0.2)', padding: '6px', fontSize: '0.85rem' }}
-                                                    />
-                                                </div>
-                                                <div className="control-group" style={{ marginBottom: 0 }}>
-                                                    <label style={{ fontSize: '0.7rem', opacity: 0.7 }}>DELAY (SEGs)</label>
-                                                    <input
-                                                        type="number"
-                                                        min="0"
-                                                        max="30"
-                                                        value={testerDelay}
-                                                        onChange={(e) => setTesterDelay(Number(e.target.value))}
-                                                        style={{ background: 'rgba(0,0,0,0.2)', borderColor: 'rgba(244, 63, 94, 0.2)', padding: '6px', fontSize: '0.85rem' }}
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
-                                                <div className="battle-toggle" style={{ border: '1px solid rgba(244, 63, 94, 0.2)', padding: '8px', borderRadius: '8px' }}>
-                                                    <label className="toggle-switch">
-                                                        <input type="checkbox" checked={testerKnowsPrompt} onChange={(e) => setTesterKnowsPrompt(e.target.checked)} />
-                                                        <span className="slider round" style={{ backgroundColor: testerKnowsPrompt ? '#f43f5e' : '' }}></span>
-                                                    </label>
-                                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                        <span style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>Modo White Box 📖</span>
-                                                        <span style={{ fontSize: '0.6rem', opacity: 0.6 }}>O Tester lerá o prompt do agente antes.</span>
-                                                    </div>
-                                                </div>
-
-                                                <div className="battle-toggle" style={{ border: '1px solid rgba(244, 63, 94, 0.2)', padding: '8px', borderRadius: '8px' }}>
-                                                    <label className="toggle-switch">
-                                                        <input type="checkbox" checked={testerIsDynamic} onChange={(e) => setTesterIsDynamic(e.target.checked)} />
-                                                        <span className="slider round" style={{ backgroundColor: testerIsDynamic ? '#f43f5e' : '' }}></span>
-                                                    </label>
-                                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                        <span style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>Modo Bipolar 🌀</span>
-                                                        <span style={{ fontSize: '0.6rem', opacity: 0.6 }}>O humor muda conforme a conversa.</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            <button
-                                                className="start-tester-btn"
-                                                onClick={toggleAutoTester}
-                                                disabled={loading && !isTesterAutoRunning}
-                                                style={{
-                                                    width: '100%',
-                                                    padding: '10px',
-                                                    background: isTesterAutoRunning ? 'linear-gradient(135deg, #ef4444, #dc2626)' : 'linear-gradient(135deg, #f43f5e, #e11d48)',
-                                                    border: 'none',
-                                                    borderRadius: '8px',
-                                                    color: 'white',
-                                                    fontWeight: 'bold',
-                                                    cursor: (loading && !isTesterAutoRunning) ? 'not-allowed' : 'pointer',
-                                                    marginTop: '10px',
-                                                    boxShadow: '0 4px 12px rgba(244, 63, 94, 0.3)',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    gap: '8px'
-                                                }}
-                                            >
-                                                {isTesterAutoRunning ? '⏹️ Parar Teste' : (isTesterRunning ? '⏳ Pensando...' : '🚀 Iniciar Stress Test')}
-                                            </button>
-                                            <p style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '8px', textAlign: 'center' }}>
-                                                A IA assumirá o papel de cliente interagindo em loop contínuo.
-                                            </p>
+                                {isTeam && (
+                                    <div className={`tester-config-box ${isTesterMode ? 'active' : ''}`} style={{
+                                        marginTop: '1rem',
+                                        padding: '12px',
+                                        background: isTesterMode ? 'rgba(244, 63, 94, 0.05)' : 'rgba(255,255,255,0.02)',
+                                        borderRadius: '12px',
+                                        border: `1px solid ${isTesterMode ? 'rgba(244, 63, 94, 0.3)' : 'rgba(255,255,255,0.05)'}`,
+                                        transition: 'all 0.3s ease'
+                                    }}>
+                                        <div className="battle-toggle" style={{ marginBottom: isTesterMode ? '12px' : '0' }}>
+                                            <label className="toggle-switch">
+                                                <input type="checkbox" checked={isTesterMode} onChange={(e) => {
+                                                    setIsTesterMode(e.target.checked);
+                                                    if (e.target.checked) setIsBattleMode(false);
+                                                }} />
+                                                <span className="slider round" style={{ backgroundColor: isTesterMode ? '#f43f5e' : '' }}></span>
+                                            </label>
+                                            <span style={{ fontWeight: isTesterMode ? 'bold' : 'normal', color: isTesterMode ? '#fb7185' : 'inherit' }}>
+                                                🎯 Stress Test (Tester AI)
+                                            </span>
                                         </div>
-                                    )}
-                                </div>
 
-                                <div className="control-group">
-                                    <label>🤖 Modelo Principal</label>
-                                    <select value={mainModelOverride} onChange={(e) => setMainModelOverride(e.target.value)}>
-                                        <option value="">(Usar Padrão do Agente)</option>
-                                        {availableModels.map(m => <option key={m} value={m}>{m}</option>)}
-                                    </select>
-                                </div>
+                                        {isTesterMode && (
+                                            <div className="stress-test-panel fade-in" style={{ padding: '1rem', background: 'rgba(244, 63, 94, 0.05)', borderRadius: '12px', border: '1px solid rgba(244, 63, 94, 0.2)', marginBottom: '1rem' }}>
+                                                <div className="control-group">
+                                                    <label style={{ color: '#f43f5e', fontSize: '0.8rem', fontWeight: 'bold' }}>👤 PERSONA DO TESTADOR</label>
+                                                    <select
+                                                        value={testerPersona}
+                                                        onChange={(e) => setTesterPersona(e.target.value)}
+                                                        style={{ background: 'rgba(0,0,0,0.2)', borderColor: 'rgba(244, 63, 94, 0.2)' }}
+                                                    >
+                                                        {Object.entries(TESTER_PERSONAS).map(([id, p]) => (
+                                                            <option key={id} value={id}>{p.name}</option>
+                                                        ))}
+                                                    </select>
+                                                    {TESTER_PERSONAS[testerPersona]?.description && (
+                                                        <p className="fade-in" style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '6px', lineHeight: '1.4', background: 'rgba(244, 63, 94, 0.05)', padding: '6px 10px', borderRadius: '6px', borderLeft: '2px solid #f43f5e' }}>
+                                                            {TESTER_PERSONAS[testerPersona].description}
+                                                        </p>
+                                                    )}
+                                                </div>
 
-                                {isBattleMode && (
-                                    <div className="arena-challenger-config fade-in" style={{ padding: '1rem', background: 'rgba(99, 102, 241, 0.05)', borderRadius: '12px', border: '1px solid rgba(99, 102, 241, 0.2)', marginTop: '0.5rem' }}>
+                                                {testerPersona === 'custom' && (
+                                                    <div className="control-group" style={{ marginTop: '8px' }}>
+                                                        <label style={{ fontSize: '0.7rem', opacity: 0.7 }}>PROMPT DA PERSONA CUSTOMIZADA</label>
+                                                        <textarea
+                                                            value={customPersona}
+                                                            onChange={(e) => setCustomPersona(e.target.value)}
+                                                            placeholder="Ex: Você é um médico aposentado que não tem paciência para tecnologia..."
+                                                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(244, 63, 94, 0.2)', borderRadius: '8px', color: 'white', padding: '10px', fontSize: '0.8rem', width: '100%', minHeight: '80px' }}
+                                                        />
+                                                    </div>
+                                                )}
+
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '10px' }}>
+                                                    <div className="control-group" style={{ marginBottom: 0 }}>
+                                                        <label style={{ fontSize: '0.7rem', opacity: 0.7 }}>Nº MENSAGENS</label>
+                                                        <input
+                                                            type="number"
+                                                            min="1"
+                                                            max="50"
+                                                            value={testerMessageCount}
+                                                            onChange={(e) => setTesterMessageCount(Number(e.target.value))}
+                                                            style={{ background: 'rgba(0,0,0,0.2)', borderColor: 'rgba(244, 63, 94, 0.2)', padding: '6px', fontSize: '0.85rem' }}
+                                                        />
+                                                    </div>
+                                                    <div className="control-group" style={{ marginBottom: 0 }}>
+                                                        <label style={{ fontSize: '0.7rem', opacity: 0.7 }}>DELAY (SEGs)</label>
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            max="30"
+                                                            value={testerDelay}
+                                                            onChange={(e) => setTesterDelay(Number(e.target.value))}
+                                                            style={{ background: 'rgba(0,0,0,0.2)', borderColor: 'rgba(244, 63, 94, 0.2)', padding: '6px', fontSize: '0.85rem' }}
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <div className="control-group" style={{ marginTop: '12px' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }} onClick={() => setIsBipolar(!isBipolar)}>
+                                                        <div style={{
+                                                            width: '36px',
+                                                            height: '18px',
+                                                            borderRadius: '18px',
+                                                            background: isBipolar ? '#f43f5e' : 'rgba(255,255,255,0.1)',
+                                                            position: 'relative',
+                                                            transition: 'all 0.3s'
+                                                        }}>
+                                                            <div style={{
+                                                                width: '14px',
+                                                                height: '14px',
+                                                                borderRadius: '50%',
+                                                                background: 'white',
+                                                                position: 'absolute',
+                                                                top: '2px',
+                                                                left: isBipolar ? '20px' : '2px',
+                                                                transition: 'all 0.3s'
+                                                            }}></div>
+                                                        </div>
+                                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                            <span style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>Modo Bipolar 🌀</span>
+                                                            <span style={{ fontSize: '0.6rem', opacity: 0.6 }}>O humor muda conforme a conversa.</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <button
+                                                    className="start-tester-btn"
+                                                    onClick={toggleAutoTester}
+                                                    disabled={loading && !isTesterAutoRunning}
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '10px',
+                                                        background: isTesterAutoRunning ? 'linear-gradient(135deg, #ef4444, #dc2626)' : 'linear-gradient(135deg, #f43f5e, #e11d48)',
+                                                        border: 'none',
+                                                        borderRadius: '8px',
+                                                        color: 'white',
+                                                        fontWeight: 'bold',
+                                                        cursor: (loading && !isTesterAutoRunning) ? 'not-allowed' : 'pointer',
+                                                        marginTop: '10px',
+                                                        boxShadow: '0 4px 12px rgba(244, 63, 94, 0.3)',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        gap: '8px'
+                                                    }}
+                                                >
+                                                    {isTesterAutoRunning ? '⏹️ Parar Teste' : (isTesterRunning ? '⏳ Pensando...' : '🚀 Iniciar Stress Test')}
+                                                </button>
+                                                <p style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '8px', textAlign: 'center' }}>
+                                                    A IA assumirá o papel de cliente interagindo em loop contínuo.
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {isTeam && (
+                                    <>
                                         <div className="control-group">
-                                            <label>🧠 Modelo do Desafiante (Arena)</label>
-                                            <select value={challengerModelOverride} onChange={(e) => setChallengerModelOverride(e.target.value)}>
+                                            <label>🤖 Modelo Principal</label>
+                                            <select value={mainModelOverride} onChange={(e) => setMainModelOverride(e.target.value)}>
                                                 <option value="">(Usar Padrão do Agente)</option>
                                                 {availableModels.map(m => <option key={m} value={m}>{m}</option>)}
                                             </select>
                                         </div>
+
+                                        {isBattleMode && (
+                                            <div className="arena-challenger-config fade-in" style={{ padding: '1rem', background: 'rgba(99, 102, 241, 0.05)', borderRadius: '12px', border: '1px solid rgba(99, 102, 241, 0.2)', marginTop: '0.5rem' }}>
+                                                <div className="control-group">
+                                                    <label>🧠 Modelo do Desafiante (Arena)</label>
+                                                    <select value={challengerModelOverride} onChange={(e) => setChallengerModelOverride(e.target.value)}>
+                                                        <option value="">(Usar Padrão do Agente)</option>
+                                                        {availableModels.map(m => <option key={m} value={m}>{m}</option>)}
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+
+                                {isTeam && (
+                                    <div className="context-card">
+                                        <h4>🌍 Contexto</h4>
+                                        {globalVars.filter(gv => !gv.key.startsWith('PUBLIC_ACCESS_TOKEN_')).map(gv => (
+                                            <div key={gv.id} className="context-field-group">
+                                                <label>{gv.key.toUpperCase().replace('_', ' ')}</label>
+                                                <input
+                                                    value={contextVars[gv.key] !== undefined ? contextVars[gv.key] : gv.value}
+                                                    onChange={(e) => setContextVars({ ...contextVars, [gv.key]: e.target.value })}
+                                                    placeholder={`Padrão: ${gv.value}`}
+                                                />
+                                            </div>
+                                        ))}
                                     </div>
                                 )}
 
-                                <div className="context-card">
-                                    <h4>🌍 Contexto</h4>
-                                    {globalVars.filter(gv => !gv.key.startsWith('PUBLIC_ACCESS_TOKEN_')).map(gv => (
-                                        <div key={gv.id} className="context-field-group">
-                                            <label>{gv.key.toUpperCase().replace('_', ' ')}</label>
-                                            <input
-                                                value={contextVars[gv.key] !== undefined ? contextVars[gv.key] : gv.value}
-                                                onChange={(e) => setContextVars({ ...contextVars, [gv.key]: e.target.value })}
-                                                placeholder={`Padrão: ${gv.value}`}
-                                            />
-                                        </div>
-                                    ))}
-                                </div>
-
                                 <div className="stats-container-premium">
-                                    <div className="session-id-row" onClick={() => {
-                                        navigator.clipboard.writeText(sessionId);
-                                        showToast('Session ID copiado! 📋', 'success');
-                                    }} title="Clique para copiar o Session ID">
-                                        <span className="session-id-label">ID DA SESSÃO 📋</span>
-                                        <code className="session-id-value">{sessionId}</code>
-                                    </div>
+                                    {isTeam && (
+                                        <div className="session-id-row" onClick={() => {
+                                            navigator.clipboard.writeText(sessionId);
+                                            showToast('Session ID copiado! 📋', 'success');
+                                        }} title="Clique para copiar o Session ID">
+                                            <span className="session-id-label">ID DA SESSÃO 📋</span>
+                                            <code className="session-id-value">{sessionId}</code>
+                                        </div>
+                                    )}
 
                                     <div className="stats-grid-modern">
                                         <div className="modern-stat-card">
@@ -2107,7 +2125,7 @@ const ChatPlayground = () => {
                             <h3>{agents.find(a => a.id === selectedAgentId)?.name || 'Agente Inteligente'}</h3>
                             <p>Assitente Virtual Nativo</p>
                         </div>
-                        {selectedAgentId && (
+                        {isTeam && selectedAgentId && (
                             <a
                                 href={`/agent/${selectedAgentId}?tab=prompts`}
                                 style={{
@@ -2177,7 +2195,7 @@ const ChatPlayground = () => {
 
                 {!isViewMode && (
                     <div className="input-area-wrapper">
-                        {sessionId && !isRegularUser && (
+                        {sessionId && isTeam && (
                             <div className="session-tools-bar">
                                 <button onClick={fetchSummary} className="tool-btn summary-btn">
                                     <span className="btn-icon">✨</span>

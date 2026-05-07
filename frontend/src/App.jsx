@@ -18,6 +18,7 @@ import Login from './components/Login';
 import Register from './components/Register';
 import UserManagement from './components/UserManagement';
 import SupportDashboard from './components/SupportDashboard';
+import UnansweredQuestions from './components/UnansweredQuestions';
 import PublicSupportView from './components/PublicSupportView';
 import PublicQuestionsView from './components/PublicQuestionsView';
 import BackgroundTasks from './components/BackgroundTasks';
@@ -62,7 +63,7 @@ function App() {
                     {/* Rotas Comuns */}
                     <Route path="/" element={<Dashboard />} />
                     <Route path="/playground" element={<ChatPlayground />} />
-                    <Route path="/inbox" element={<SupportDashboard />} /> {/* SupportDashboard will serve as Inbox for now */}
+                    <Route path="/inbox" element={<UnansweredQuestions />} />
 
                     {/* Rotas restritas para o TIME (Admin e Super Admin) */}
                     {isTeam && (
@@ -70,7 +71,6 @@ function App() {
                         <Route path="/agent/new" element={<ConfigPanel />} />
                         <Route path="/faq" element={<FAQ />} />
                         <Route path="/tools" element={<ToolsManager standalone={true} />} />
-                        <Route path="/financeiro" element={<Financeiro />} />
                         <Route path="/fine-tuning" element={<FineTuning />} />
                         <Route path="/integrations" element={<IntegrationsPanel />} />
                         <Route path="/background-tasks" element={<BackgroundTasks />} />
@@ -81,6 +81,7 @@ function App() {
                     {/* Rota restrita para GESTÃO (Super Admin, Admin e Client Admin) */}
                     {isManagement && (
                       <>
+                        <Route path="/financeiro" element={<Financeiro />} />
                         <Route path="/users" element={<UserManagement />} />
                         <Route path="/agent/:id" element={<ConfigPanel />} />
                         <Route path="/knowledge-bases" element={<KnowledgeBaseList />} />

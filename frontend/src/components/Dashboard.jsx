@@ -8,7 +8,7 @@ import GlobalContextManager from './GlobalContextManager';
 
 function AgentCard({ agent, kbList, onDelete, onDuplicate, onPause, onShare }) {
     const navigate = useNavigate();
-    const { isTeam, isUsuarioAdmin, isUsuario } = useRole();
+    const { isTeam, isUsuarioAdmin, isUsuario, isSuperAdmin } = useRole();
 
     return (
         <div className={`modern-agent-card ${!agent.is_active ? 'inactive' : ''}`}>
@@ -56,8 +56,8 @@ function AgentCard({ agent, kbList, onDelete, onDuplicate, onPause, onShare }) {
                 </div>
             </div>
 
-            <div className={`card-footer ${isUsuario ? 'user-view' : ''}`}>
-                {isTeam && (
+            <div className={`card-footer ${!isSuperAdmin ? 'user-view' : ''}`}>
+                {isSuperAdmin && (
                     <button onClick={() => navigate(`/agent/${agent.id}`)} className="btn-primary">
                         ⚙️ Configurar
                     </button>
@@ -68,7 +68,7 @@ function AgentCard({ agent, kbList, onDelete, onDuplicate, onPause, onShare }) {
                     className="btn-secondary"
                     style={{
                         opacity: agent.is_active ? 1 : 0.5,
-                        gridColumn: isUsuario ? '1 / span 2' : 'auto'
+                        gridColumn: !isSuperAdmin ? '1 / span 2' : 'auto'
                     }}
                 >
                     💬 Chat

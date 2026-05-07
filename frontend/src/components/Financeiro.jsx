@@ -1,9 +1,12 @@
 import { api } from '../api/client';
+import { USER_ROLES } from '../constants/auth';
 
 import React, { useState, useEffect, useMemo } from 'react';
 const USD_BRL = 5.8;
 
 function Financeiro() {
+    const userRole = localStorage.getItem('user_role');
+    const isUsuarioAdmin = userRole === USER_ROLES.USUARIO_ADMIN;
     const [report, setReport] = useState({ items: [], grand_total_cost: 0 });
     const [ftJobs, setFtJobs] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -178,20 +181,22 @@ function Financeiro() {
                     <h1>Financeiro 💰</h1>
                     <p className="subtitle">Controle de gastos e inteligência de tokens</p>
 
-                    <div className="view-mode-toggle">
-                        <button
-                            className={viewMode === 'agents' ? 'active' : ''}
-                            onClick={() => { setViewMode('agents'); setCurrentPage(1); }}
-                        >
-                            🤖 Agentes
-                        </button>
-                        <button
-                            className={viewMode === 'finetuning' ? 'active' : ''}
-                            onClick={() => { setViewMode('finetuning'); setCurrentPage(1); }}
-                        >
-                            🧠 Fine-Tuning
-                        </button>
-                    </div>
+                    {!isUsuarioAdmin && (
+                        <div className="view-mode-toggle">
+                            <button
+                                className={viewMode === 'agents' ? 'active' : ''}
+                                onClick={() => { setViewMode('agents'); setCurrentPage(1); }}
+                            >
+                                🤖 Agentes
+                            </button>
+                            <button
+                                className={viewMode === 'finetuning' ? 'active' : ''}
+                                onClick={() => { setViewMode('finetuning'); setCurrentPage(1); }}
+                            >
+                                🧠 Fine-Tuning
+                            </button>
+                        </div>
+                    )}
                 </div>
                 <div className="period-selector">
                     <button className={period === 'today' ? 'active' : ''} onClick={() => setPeriod('today')}>Hoje</button>

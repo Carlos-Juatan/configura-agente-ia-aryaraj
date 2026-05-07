@@ -627,7 +627,7 @@ from background_tasks import router as background_tasks_router
 
 app.include_router(import_router, dependencies=[Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value]))])
 app.include_router(prompt_lab_router, dependencies=[Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value]))])
-app.include_router(analysis_router, dependencies=[Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value]))])
+app.include_router(analysis_router, dependencies=[Depends(check_role([UserRole.SUPERADMIN.value]))])
 app.include_router(background_tasks_router)
 
 # Servir arquivos do Widget (JS e CSS)

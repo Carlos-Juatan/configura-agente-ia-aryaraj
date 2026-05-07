@@ -104,20 +104,30 @@ const Sidebar = ({ onLogout }) => {
                                 className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
                             >
                                 <span className="nav-icon">📥</span>
-                                <span className="nav-label">Inbox / FAQ</span>
+                                <span className="nav-label">Inbox de Dúvidas</span>
                                 <div className="active-indicator"></div>
                             </NavLink>
                         )}
 
                         {isManagement && (
-                            <NavLink
-                                to="/knowledge-bases"
-                                className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-                            >
-                                <span className="nav-icon">📚</span>
-                                <span className="nav-label">Bases de Conhecimento</span>
-                                <div className="active-indicator"></div>
-                            </NavLink>
+                            <>
+                                <NavLink
+                                    to="/knowledge-bases"
+                                    className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                                >
+                                    <span className="nav-icon">📚</span>
+                                    <span className="nav-label">Bases de Conhecimento</span>
+                                    <div className="active-indicator"></div>
+                                </NavLink>
+                                <NavLink
+                                    to="/financeiro"
+                                    className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                                >
+                                    <span className="nav-icon">💰</span>
+                                    <span className="nav-label">Financeiro</span>
+                                    <div className="active-indicator"></div>
+                                </NavLink>
+                            </>
                         )}
                         {isTeam && (
                             <>
@@ -135,14 +145,6 @@ const Sidebar = ({ onLogout }) => {
                                 >
                                     <span className="nav-icon">🛠️</span>
                                     <span className="nav-label">Ferramentas (API)</span>
-                                    <div className="active-indicator"></div>
-                                </NavLink>
-                                <NavLink
-                                    to="/financeiro"
-                                    className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-                                >
-                                    <span className="nav-icon">💰</span>
-                                    <span className="nav-label">Financeiro</span>
                                     <div className="active-indicator"></div>
                                 </NavLink>
                                 <NavLink

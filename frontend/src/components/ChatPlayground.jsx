@@ -925,7 +925,15 @@ const ChatPlayground = () => {
                 <div className={`message-row ${isUser ? 'user-row' : 'assistant-row'}`}>
                     {!isUser && <div className="avatar assistant-avatar">🤖</div>}
                     <div className={`message-bubble ${isUser ? 'user-bubble' : 'assistant-bubble'}`}>
-                        <div className="message-content" style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
+                        <div className="message-content" style={{ whiteSpace: 'pre-wrap' }}>
+                            {(() => {
+                                if (!msg.content) return msg.content;
+                                const parts = msg.content.split(/\*([^*]+)\*/g);
+                                return parts.map((part, index) => 
+                                    index % 2 === 1 ? <strong key={index}>{part}</strong> : part
+                                );
+                            })()}
+                        </div>
                         {msg.metrics && !isRegularUser && (
                             <div className="message-meta">
                                 {msg.metrics.input_tokens !== undefined ? (
@@ -1930,55 +1938,20 @@ const ChatPlayground = () => {
                                 <div className="history-header-actions" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '8px' }}>
                                     <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center' }}>
                                         <h4 style={{ color: 'white', margin: 0 }}>Conversas Anteriores</h4>
-                                        <button
-                                            className={`manage-btn ${isSelectionMode ? 'active' : ''}`}
-                                            onClick={toggleSelectionMode}
-                                            title={isSelectionMode ? "Cancelar Seleção" : "Gerenciar Conversas"}
-                                        >
-                                            {isSelectionMode ? '✖' : '⚙️'}
-                                        </button>
+                                        {!isRegularUser && (
+                                            <button
+                                                className={`manage-btn ${isSelectionMode ? 'active' : ''}`}
+                                                onClick={toggleSelectionMode}
+                                                title={isSelectionMode ? "Cancelar Seleção" : "Gerenciar Conversas"}
+                                                disabled={sessions.length === 0}
+                                                style={{ opacity: sessions.length === 0 ? 0.5 : 1, cursor: sessions.length === 0 ? 'not-allowed' : 'pointer' }}
+                                            >
+                                                {isSelectionMode ? '✖' : '⚙️'}
+                                            </button>
+                                        )}
                                     </div>
 
-                                    <div className="history-filters" style={{
-                                        display: 'flex',
-                                        gap: '4px',
-                                        background: 'rgba(0,0,0,0.2)',
-                                        padding: '4px',
-                                        borderRadius: '8px',
-                                        width: '100%',
-                                        marginTop: '4px'
-                                    }}>
-                                        <button
-                                            onClick={() => setHistoryFilter('all')}
-                                            style={{
-                                                flex: 1,
-                                                padding: '4px 8px',
-                                                fontSize: '0.75rem',
-                                                border: 'none',
-                                                borderRadius: '6px',
-                                                cursor: 'pointer',
-                                                background: historyFilter === 'all' ? 'rgba(255,255,255,0.1)' : 'transparent',
-                                                color: historyFilter === 'all' ? '#fff' : '#64748b',
-                                                fontWeight: historyFilter === 'all' ? 'bold' : 'normal',
-                                                transition: 'all 0.2s'
-                                            }}
-                                        >Tudo</button>
-                                        <button
-                                            onClick={() => setHistoryFilter('test')}
-                                            style={{
-                                                flex: 1,
-                                                padding: '4px 8px',
-                                                fontSize: '0.75rem',
-                                                border: 'none',
-                                                borderRadius: '6px',
-                                                cursor: 'pointer',
-                                                background: historyFilter === 'test' ? 'rgba(244, 63, 94, 0.2)' : 'transparent',
-                                                color: historyFilter === 'test' ? '#fb7185' : '#64748b',
-                                                fontWeight: historyFilter === 'test' ? 'bold' : 'normal',
-                                                transition: 'all 0.2s'
-                                            }}
-                                        >🤖 Testes</button>
-                                    </div>
+
                                 </div>
 
                                 {isSelectionMode && (
@@ -2001,7 +1974,7 @@ const ChatPlayground = () => {
                                     </div>
                                 )}
 
-                                {isSelectionMode && selectedSessions.size > 0 && (
+                                {isSuperAdmin && isSelectionMode && selectedSessions.size > 0 && (
                                     <button
                                         className="fade-in"
                                         onClick={extractBatchQuestions}

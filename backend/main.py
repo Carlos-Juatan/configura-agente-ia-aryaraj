@@ -145,17 +145,20 @@ async def provision_superadmin():
         return
 
     async with async_session() as session:
-        # Verifica se já existe algum superadmin
+        # Verifica se o email específico já existe como superadmin
         from models import UserRole
-        result = await session.execute(select(UserModel).where(UserModel.role == UserRole.SUPERADMIN.value))
-        if result.scalar_one_or_none():
-            logger.info("PROVISION: Super Admin já existe no sistema.")
+        result = await session.execute(select(UserModel).where(UserModel.email == email))
+        existing_user = result.scalar_one_or_none()
+        
+        if existing_user and existing_user.role == UserRole.SUPERADMIN.value:
+            logger.info(f"PROVISION: Super Admin '{email}' já existe no sistema.")
             return
 
-        # Verifica se o email já está em uso por outro papel (raro em clean install)
-        result = await session.execute(select(UserModel).where(UserModel.email == email))
-        if result.scalar_one_or_none():
-            logger.warning(f"PROVISION: Email {email} já está em uso, mas n├úo como SUPERADMIN. Pulando.")
+        # Se o usuário existe mas não é Super Admin, vamos promovê-lo
+        if existing_user:
+            logger.info(f"PROVISION: Promovendo usuário '{email}' existente para SUPERADMIN.")
+            existing_user.role = UserRole.SUPERADMIN.value
+            await session.commit()
             return
 
         # Cria o Super Admin
@@ -308,23 +311,20 @@ async def login(request: Request, req: LoginRequest, db: AsyncSession = Depends(
     if os.path.exists(env_path):
         env_vars = dotenv_values(env_path)
 
+    # Check fixed admin from env (Initial Superadmin)
     admin_email = env_vars.get("ADMIN_EMAIL") or os.getenv("ADMIN_EMAIL") or "admin@agente.com"
     admin_password = env_vars.get("ADMIN_PASSWORD") or os.getenv("ADMIN_PASSWORD") # Se não tiver, falha
     
-    # Check fixed admin from env (Initial Superadmin)
-    initial_email = os.getenv("INITIAL_SUPERADMIN_EMAIL")
-    initial_pass = os.getenv("INITIAL_SUPERADMIN_PASSWORD")
-    
-    if initial_email and initial_pass:
-        if req.email == initial_email and req.password == initial_pass:
+    if admin_email and admin_password:
+        if req.email == admin_email and req.password == admin_password:
             from models import UserRole
             # Tenta buscar no banco para pegar o ID real (provisionado no startup)
-            result_init = await db.execute(select(UserModel).where(UserModel.email == initial_email))
+            result_init = await db.execute(select(UserModel).where(UserModel.email == admin_email))
             db_init = result_init.scalar_one_or_none()
             real_id = db_init.id if db_init else 0
-            real_name = db_init.name if db_init else os.getenv("INITIAL_SUPERADMIN_NAME", "Admin Inicial")
+            real_name = db_init.name if db_init else (env_vars.get("INITIAL_SUPERADMIN_NAME") or os.getenv("INITIAL_SUPERADMIN_NAME", "Admin Inicial"))
             
-            access_token = create_access_token(data={"sub": initial_email, "role": UserRole.SUPERADMIN.value, "id": real_id})
+            access_token = create_access_token(data={"sub": admin_email, "role": UserRole.SUPERADMIN.value, "id": real_id})
             return {"success": True, "token": access_token, "user": {"name": real_name, "role": UserRole.SUPERADMIN.value, "id": real_id}}
 
     # Busca em banco

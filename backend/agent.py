@@ -668,8 +668,6 @@ async def process_message(
                 rag_context += f"---\n{meta_info}Perg: {item['question']}\nResp{page_info}: {item['answer']}\n"
             
             print(f"🔍 RAG: Injected {len(relevant_items)} items into context (Limit: {limit}).")
-            if getattr(config, 'inbox_capture_enabled', True):
-                rag_context += " Caso a informação necessária para responder a uma PERGUNTA DIRETA do usuário não esteja presente nos contextos, use a ferramenta `registrar_duvida_sem_resposta`."
 
 
     # 2. DATE AWARENESS
@@ -710,8 +708,6 @@ async def process_message(
     elif db and kb_ids and not skip_rag and not relevant_items:
         # RAG was consulted but found nothing - explicitly tell the model to use System Prompt
         messages[0]["content"] += "\n\n# NOTA IMPORTANTE: A base de conhecimento (RAG) foi consultada para esta pergunta mas N├âO retornou resultados. Você DEVE responder APENAS usando as informaç├Áes que já estão nas suas instruç├Áes acima."
-        if getattr(config, 'inbox_capture_enabled', True):
-            messages[0]["content"] += " Se a resposta para uma PERGUNTA DIRETA do usuário não estiver la, USE A FERRAMENTA 'registrar_duvida_sem_resposta'. (⚠️´©Å ATEN├ç├âO: S├ô use a ferramenta se o usuário estiver perguntando algo que você não sabe. Se ele estiver apenas conversando ou respondendo a você, N├âO chame a ferramenta)."
 
     messages.extend(history)
     messages.append({"role": "user", "content": message})
@@ -833,26 +829,42 @@ async def process_message(
             }
         })
 
-    # 5. INTERNAL UNANSWERED QUESTIONS TOOL
-    if getattr(config, 'inbox_capture_enabled', True) and "registrar_duvida_sem_resposta" not in existing_tool_names:
-        messages[0]["content"] += "\n\n🚨 PROTOCOLO DE D├ÜVIDAS DESCONHECIDAS: Se o usuário te fizer uma **PERGUNTA DIRETA** sobre algo que VOC├è N├âO SABE (não está nas suas instruç├Áes nem via RAG), N├âO responda em texto que não sabe. OBRIGATORIAMENTE chame a ferramenta 'registrar_duvida_sem_resposta' com a pergunta dele. ⚠️´©Å IMPORTANTE: S├ô CHAME SE FOR UMA PERGUNTA! Se o usuário estiver apenas conversando, fazendo uma afirmação, ou respondendo algo que VOC├è perguntou, N├âO chame a ferramenta, apenas converse normalmente."
-        openai_tools.append({
-            "type": "function",
-            "function": {
-                "name": "registrar_duvida_sem_resposta",
-                "description": "CHAME APENAS SE: O usuário fez uma PERGUNTA NOVA que você N├âO SABE a resposta. N├âO CHAME SE: For apenas bate-papo, uma afirmação do usuário, ou se o usuário estiver respondendo uma pergunta sua.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "pergunta": {
-                            "type": "string",
-                            "description": "A pergunta exata do usuário que você não soube responder."
-                        }
-                    },
-                    "required": ["pergunta"]
+    # 5. INTERNAL UNANSWERED QUESTIONS TOOL (Consolidated Protocol)
+    if getattr(config, 'inbox_capture_enabled', True):
+        # Always inject the protocol instruction if enabled, even if the tool name was manually added
+        messages[0]["content"] += (
+            "\n\n"
+            "### 🚨 PROTOCOLO DE DÚVIDAS DESCONHECIDAS (CRÍTICO)\n"
+            "Se o usuário fizer uma **PERGUNTA DIRETA** sobre algo que você **NÃO SABE** "
+            "(não consta no contexto RAG nem nas suas instruções), siga este processo:\n"
+            "1. **NÃO** responda 'Eu não sei' ou 'Não tenho essa informação' diretamente no texto.\n"
+            "2. **OBRIGATORIAMENTE** chame a ferramenta `registrar_duvida_sem_resposta` enviando a pergunta dele.\n"
+            "3. Se a ferramenta confirmar o registro, responda gentilmente ao usuário confirmando que a dúvida foi salva para análise.\n"
+            "\n"
+            "⚠️ **QUANDO NÃO USAR:**\n"
+            "- Se o usuário estiver apenas batendo papo (Ex: 'Olá', 'Tudo bem?').\n"
+            "- Se for uma afirmação ou comentário sem pergunta.\n"
+            "- Se o usuário estiver apenas respondendo a algo que VOCÊ perguntou."
+        )
+        
+        if "registrar_duvida_sem_resposta" not in existing_tool_names:
+            openai_tools.append({
+                "type": "function",
+                "function": {
+                    "name": "registrar_duvida_sem_resposta",
+                    "description": "Registra uma dúvida que o agente não sabe responder para que o administrador possa revisá-la futuramente.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "pergunta": {
+                                "type": "string",
+                                "description": "A pergunta exata do usuário que você não soube responder."
+                            }
+                        },
+                        "required": ["pergunta"]
+                    }
                 }
-            }
-        })
+            })
 
 
 
@@ -1115,15 +1127,20 @@ async def process_message(
                         try:
                             from models import UnansweredQuestionModel
                             func_args = json.loads(func_args_str)
-                            question = func_args.get("pergunta")
+                            question = func_args.get("pergunta") or message # Fallback to current message if empty
                             
-                            # Safely extract session_id from context_variables (which was passed, but we didn't have session_id local variable)
+                            print(f"📥 [Doubt Inbox] Iniciando registro de dúvida: '{question[:50]}...'")
+                            
+                            # Safely extract session_id from context_variables
                             current_session_id = context_variables.get("session_id") if context_variables else "Desconhecida"
                             if not current_session_id and context_variables.get("thread_id"):
                                 current_session_id = context_variables.get("thread_id")
                                 
-                            context_text = f"Sessão: {current_session_id}\nMensagens recentes extraídas:\n" + "\n".join([f"{m.get('role', 'N/A')}: {m.get('content', 'N/A')}" for m in history[-5:]])
-                            
+                            # Build a richer context
+                            recent_msgs = history[-10:] if history else []
+                            context_lines = [f"{m.get('role', 'N/A')}: {m.get('content', 'N/A')}" for m in recent_msgs]
+                            context_lines.append(f"user (atual): {message}")
+                            context_text = f"Sessão: {current_session_id}\n\n# HISTÓRICO RECENTE:\n" + "\n".join(context_lines)
                             
                             # ID do agente para o Inbox
                             ag_id = getattr(config, 'id', None)
@@ -1137,14 +1154,20 @@ async def process_message(
                                 context=context_text,
                                 status="PENDENTE"
                             )
+                            
                             if db:
                                 db.add(new_q)
                                 await db.commit()
-                                tool_output = "Desculpe, eu ainda não tenho essa informação na minha base de conhecimento, mas acabei de registrar sua dúvida para tentar descobrir a resposta o mais rápido possível e te responder futuramente."
+                                print(f"✅ [Doubt Inbox] Dúvida registrada com sucesso no banco (ID do Agente: {ag_id})")
+                                tool_output = "Registro de dúvida realizado com sucesso. Por favor, confirme ao usuário que a dúvida foi salva para análise administrativa."
                             else:
-                                tool_output = "Não foi possível registrar a dúvida (sem conexão com o banco de dados no momento)."
+                                print("❌ [Doubt Inbox] Falha ao registrar: Conexão com banco de dados ausente (db is None)")
+                                tool_output = "Erro interno: Sem conexão com o banco de dados para registrar a dúvida."
                         except Exception as e:
-                            tool_output = f"Erro ao registrar dúvida: {str(e)}"
+                            import traceback
+                            print(f"❌ [Doubt Inbox] ERRO CRÍTICO ao registrar dúvida: {str(e)}")
+                            traceback.print_exc()
+                            tool_output = f"Erro ao processar registro de dúvida: {str(e)}"
 
                     # Native Google Calendar Tool Handlers
                     elif func_name in (
@@ -1345,7 +1368,6 @@ async def process_message(
 
                 # Using 'user' role instead of 'system' because some compatibility layers (like Gemini)
                 # might return an empty output if the final message in the chain is 'system'
-                messages.append({"role": "user", "content": "A ferramenta retornou os dados acima. Por favor, forneça uma resposta final ao usuário baseada nessas informaç├Áes."})
             
         return {
             "content": "Desculpe, excedi o limite de processamento para esta solicitação.",

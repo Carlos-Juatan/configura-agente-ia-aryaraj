@@ -9,6 +9,7 @@ agent_tools = Table(
     Base.metadata,
     Column("agent_id", Integer, ForeignKey("agent_config.id", ondelete="CASCADE"), primary_key=True),
     Column("tool_id", Integer, ForeignKey("tools.id", ondelete="CASCADE"), primary_key=True),
+    extend_existing=True
 )
 
 # Tabela de associação para Muitos-para-Muitos entre Agentes e Bases de Conhecimento
@@ -17,6 +18,7 @@ agent_knowledge_bases = Table(
     Base.metadata,
     Column("agent_id", Integer, ForeignKey("agent_config.id", ondelete="CASCADE"), primary_key=True),
     Column("knowledge_base_id", Integer, ForeignKey("knowledge_bases.id", ondelete="CASCADE"), primary_key=True),
+    extend_existing=True
 )
 
 class InteractionLog(Base):

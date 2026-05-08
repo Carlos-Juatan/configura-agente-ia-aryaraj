@@ -72,7 +72,10 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def get_current_user(token: str = Depends(APIKeyHeader(name="Authorization", auto_error=False))):
+async def get_current_user(
+    token: str = Depends(APIKeyHeader(name="Authorization", auto_error=False)),
+    db: AsyncSession = Depends(get_db)
+):
     if not token:
         logger.warning("AUTH: Token ausente na requisição")
         raise HTTPException(status_code=401, detail="Token ausente")
@@ -83,14 +86,30 @@ async def get_current_user(token: str = Depends(APIKeyHeader(name="Authorization
         
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_email: str = payload.get("sub")
-        user_role: str = payload.get("role")
+        # user_role: str = payload.get("role") # Não confiamos mais apenas no role do token
         user_id: int = payload.get("id")
         
         if user_email is None:
             logger.warning("AUTH: Payload do token sem 'sub'")
             raise HTTPException(status_code=401, detail="Token inválido")
             
-        return {"email": user_email, "role": user_role, "id": user_id}
+        # Busca o usuário no banco para garantir que o papel (role) esteja atualizado
+        result = await db.execute(select(UserModel).where(UserModel.email == user_email))
+        db_user = result.scalar_one_or_none()
+        
+        if db_user:
+            return {"email": db_user.email, "role": db_user.role, "id": db_user.id}
+            
+        # Fallback para o Super Admin inicial (do .env) caso não esteja no banco
+        from dotenv import dotenv_values
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        env_vars = dotenv_values(env_path) if os.path.exists(env_path) else {}
+        admin_email = env_vars.get("ADMIN_EMAIL") or os.getenv("ADMIN_EMAIL") or "admin@agente.com"
+        
+        if user_email == admin_email:
+            return {"email": user_email, "role": UserRole.SUPERADMIN.value, "id": user_id or 0}
+
+        raise HTTPException(status_code=401, detail="Usuário não encontrado")
     except JWTError as e:
         logger.warning(f"AUTH: Falha na validação do JWT: {str(e)}")
         raise HTTPException(status_code=401, detail="Token inválido ou expirado")
@@ -239,7 +258,7 @@ async def get_me(current_user: dict = Depends(get_current_user), db: AsyncSessio
             # Tenta buscar no banco para pegar o ID real
             result_admin = await db.execute(select(UserModel).where(UserModel.email == admin_email))
             db_admin = result_admin.scalar_one_or_none()
-            real_id = db_admin.id if db_admin else 0
+            real_id = db_admin.id if db_admin else None # Alterado de 0 para None para evitar FK errors
             return {"id": real_id, "name": db_admin.name if db_admin else "Admin Super", "email": admin_email, "role": UserRole.SUPERADMIN.value}
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
     return user
@@ -321,7 +340,7 @@ async def login(request: Request, req: LoginRequest, db: AsyncSession = Depends(
             # Tenta buscar no banco para pegar o ID real (provisionado no startup)
             result_init = await db.execute(select(UserModel).where(UserModel.email == admin_email))
             db_init = result_init.scalar_one_or_none()
-            real_id = db_init.id if db_init else 0
+            real_id = db_init.id if db_init else None # Alterado de 0 para None
             real_name = db_init.name if db_init else (env_vars.get("INITIAL_SUPERADMIN_NAME") or os.getenv("INITIAL_SUPERADMIN_NAME", "Admin Inicial"))
             
             access_token = create_access_token(data={"sub": admin_email, "role": UserRole.SUPERADMIN.value, "id": real_id})
@@ -502,7 +521,8 @@ async def update_user_role(
     await db.commit()
     
     from services.audit_service import AuditLogger
-    await AuditLogger.log(db, "PROMOTE_USER", {"target_id": user_id, "old_role": old_role, "new_role": new_role}, user_id=current_user["id"])
+    audit_user_id = current_user["id"] if current_user["id"] != 0 else None
+    await AuditLogger.log(db, "PROMOTE_USER", {"target_id": user_id, "old_role": old_role, "new_role": new_role}, user_id=audit_user_id)
     
     return {"success": True, "new_role": db_user.role}
 

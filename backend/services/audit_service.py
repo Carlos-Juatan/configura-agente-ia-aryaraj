@@ -11,6 +11,8 @@ class AuditLogger:
         """
         Registra uma ação no log de auditoria.
         """
+        if user_id == 0:
+            user_id = None
         try:
             new_log = AuditLogModel(
                 user_id=user_id,
@@ -23,5 +25,6 @@ class AuditLogger:
             await db.commit()
             logger.info(f"AUDIT: Action '{action}' by user {user_id} logged.")
         except Exception as e:
+            await db.rollback()
             logger.error(f"AUDIT: Failed to log action '{action}': {str(e)}")
-            # N├úo lançamos exceção para n├úo quebrar o fluxo principal se a auditoria falhar
+            # Não lançamos exceção para não quebrar o fluxo principal se a auditoria falhar

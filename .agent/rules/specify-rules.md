@@ -1,6 +1,6 @@
 # configura-agente-ia-aryaraj Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-04-13
+Auto-generated from all feature plans. Last updated: 2026-08-11
 
 ## Active Technologies
 - Python 3.12+ (Backend), TypeScript 5+ (Frontend) + FastAPI, SQLAlchemy (Async), LangGraph, TaskIQ, RabbitMQ, Pydantic v2 (003-performance-tools)
@@ -9,6 +9,8 @@ Auto-generated from all feature plans. Last updated: 2026-04-13
 - PostgreSQL with SQLAlchemy/Alembic (006-background-process-monitor)
 - Python 3.11+, TypeScript/React (Vite) + FastAPI, SQLAlchemy, Alembic, React, TaskIQ, RabbitMQ (008-fix-implementation-regressions)
 - PostgreSQL + pgvector (008-fix-implementation-regressions)
+- Python 3.11 (backend) · TypeScript/JSX (frontend — React) + FastAPI, TaskIQ + RabbitMQ, SQLAlchemy (async), Pydantic v2 (010-kb-faq-modal-upload)
+- PostgreSQL + pgvector (tabela `knowledge_items` — sem mudanças) (010-kb-faq-modal-upload)
 
 - Python 3.12+ (Async) + FastAPI, SQLAlchemy (Async), LangGraph, TaskIQ, RabbitMQ, Pydantic v2, pgvector. (001-fluxai-core-engine)
 
@@ -28,6 +30,7 @@ cd src [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLO
 Python 3.12+ (Async): Follow standard conventions
 
 ## Recent Changes
+- 010-kb-faq-modal-upload: Added Python 3.11 (backend) · TypeScript/JSX (frontend — React) + FastAPI, TaskIQ + RabbitMQ, SQLAlchemy (async), Pydantic v2
 - 008-fix-implementation-regressions: Added Python 3.11+, TypeScript/React (Vite) + FastAPI, SQLAlchemy, Alembic, React, TaskIQ, RabbitMQ
 - 006-background-process-monitor: Added Python 3.11+ (Backend), TypeScript (Frontend) + TaskIQ, RabbitMQ, LangGraph, FastAPI UI WebSockets, React, shadcn/ui
 

@@ -37,7 +37,13 @@ docker-compose.override.yml
 Thumbs.db
 
 # Project specific
-*.txt
 *.pdf
 tmp/
 debug/
+# Ignore .txt files but NOT requirements.txt
+*.txt
+!backend/requirements.txt
+
+
+# Testes
+tests/

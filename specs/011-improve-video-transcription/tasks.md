@@ -25,10 +25,11 @@
 
 **Purpose**: Core data models and generic background task logging framework required across all stories.
 
-- [ ] T003 Update DB models in `backend/models.py` to support `execution_log` storage, task status, retry counts, and language selection
+- [ ] T003 Update DB models in `backend/models.py` to support `execution_log` storage, task status, retry counts, language selection, and `deleted_at` for soft delete
 - [ ] T004 Run database migrations via Alembic for task model schema updates in `backend/alembic/`
-- [ ] T005 Implement generic logger utility with 5,000-line truncation policy in `backend/services/task_logger_service.py`
+- [ ] T005 Implement generic logger utility with 5,000-line truncation policy in `backend/services/task_logger_service.py` (must capture current stage and full error stack trace for ERROR levels)
 - [ ] T006 [P] Implement WebSocket/SSE log streaming endpoint in `backend/main.py` for real-time task progress pushing
+- [ ] T006b [P] Create scheduled TaskIQ job in `backend/background_tasks.py` to clean up logs/tasks older than 30 days
 
 **Checkpoint**: Core logging & task data layer ready - user story implementations can begin.
 
@@ -43,7 +44,7 @@
 ### Implementation for User Story 1
 
 - [ ] T007 [US1] Update `transcribe_video` in `backend/transcription_service.py` to remove deprecated `speech_model="best"` and use valid parameters (`speech_models=["universal-3-5-pro", "universal-2"]` or default)
-- [ ] T008 [US1] Update TaskIQ background task in `backend/tasks.py` to include retry mechanism (up to 3 automatic attempts with progressive delay)
+- [ ] T008 [US1] Update TaskIQ background task in `backend/tasks.py` to include retry mechanism (up to 3 automatic attempts with progressive delay: 30s, 90s, 180s)
 - [ ] T009 [US1] Add `POST /api/tasks/{task_id}/reprocess` endpoint in `backend/main.py` to allow manual reprocessing of failed tasks
 - [ ] T010 [US1] Update backend route for video import in `backend/main.py` to handle task status and retry state properly
 
@@ -59,10 +60,11 @@
 
 ### Implementation for User Story 2
 
-- [ ] T011 [P] [US2] Create reusable Terminal Log Viewer component in `frontend/src/components/TaskDetailsModal.tsx`
+- [ ] T011 [P] [US2] Create reusable Terminal Log Viewer component in `frontend/src/components/TaskDetailsModal.tsx` (include handling for empty logs state with informational message)
 - [ ] T012 [US2] Integrate WebSocket/SSE connection in `frontend/src/components/TaskDetailsModal.tsx` to receive real-time log updates
 - [ ] T013 [US2] Add "Reprocessar" button to `frontend/src/components/TaskDetailsModal.tsx` for tasks with `failed` status
 - [ ] T014 [US2] Integrate `TaskDetailsModal` into `KnowledgeBaseManager` in `frontend/src/components/KnowledgeBase/` for video, document, and FAQ tasks
+- [ ] T014b [US2] Integrate frontend "Reprocessar" button with backend `POST /api/tasks/{task_id}/reprocess` endpoint to validate end-to-end restart flow
 
 **Checkpoint**: Detailed terminal-style log modal is fully functional across all background task types in the UI.
 

@@ -70,7 +70,7 @@ Um administrador que possui vídeos em diferentes idiomas quer poder escolher o 
 
 ### Edge Cases
 
-- O que acontece se o serviço de transcrição estiver indisponível temporariamente? O sistema tenta novamente até 3 vezes com intervalo progressivo; se todas as tentativas falharem, registra o erro no log e marca a tarefa como falha definitiva com mensagem clara.
+- O que acontece se o serviço de transcrição estiver indisponível temporariamente? O sistema tenta novamente até 3 vezes com intervalo progressivo (ex: 30s, 90s, 180s); se todas as tentativas falharem, registra o erro no log e marca a tarefa como falha definitiva com mensagem clara.
 - Como o sistema lida com vídeos muito longos que excedem limites do serviço de transcrição? O log deve registrar o problema e a tarefa deve falhar com mensagem descritiva.
 - O que acontece se o arquivo de vídeo for removido do armazenamento antes de o processamento iniciar? O log deve capturar o erro de acesso ao arquivo.
 - Se o log de processamento exceder 5.000 linhas: as primeiras e últimas linhas são preservadas, e uma mensagem de aviso visível é inserida no meio indicando que parte do conteúdo intermediário foi omitida por excesso de tamanho.
@@ -90,9 +90,9 @@ Um administrador que possui vídeos em diferentes idiomas quer poder escolher o 
 - **FR-008**: O sistema DEVE incluir no log de detalhes o idioma utilizado na transcrição.
 - **FR-009**: O sistema DEVE registrar erros de processamento no log com contexto suficiente para diagnóstico, incluindo a etapa em que o erro ocorreu e a mensagem de erro completa.
 - **FR-010**: O sistema DEVE oferecer no mínimo as seguintes opções de idioma: Automático (detectar), Português (Brasil), Inglês, Espanhol.
-- **FR-011**: Em caso de falha no processamento de transcrição, o sistema DEVE realizar até 3 tentativas automáticas com intervalos progressivos entre elas antes de marcar a tarefa como falha definitiva. Cada tentativa e seu resultado DEVEM ser registrados no log de detalhes.
+- **FR-011**: Em caso de falha no processamento de transcrição, o sistema DEVE realizar até 3 tentativas automáticas com intervalos progressivos entre elas (ex: 30s, 90s, 180s) antes de marcar a tarefa como falha definitiva. Cada tentativa e seu resultado DEVEM ser registrados no log de detalhes.
 - **FR-012**: O log de processamento DEVE ser limitado a 5.000 linhas. Quando esse limite for atingido, o sistema DEVE preservar as primeiras e últimas linhas do log e inserir uma mensagem de aviso explícita no ponto de corte, indicando que parte do conteúdo intermediário foi omitida.
-- **FR-013**: Tarefas de processamento de vídeo com status de falha definitiva DEVEM exibir um botão "Reprocessar" na interface. Ao acioná-lo, o administrador inicia um novo ciclo de processamento completo para aquele vídeo, com novo log gerado.
+- **FR-013**: Qualquer tarefa em background com status de falha definitiva DEVE exibir um botão "Reprocessar" na interface. Ao acioná-lo, o administrador inicia um novo ciclo de processamento completo para aquela tarefa, com novo log gerado.
 
 ### Key Entities
 

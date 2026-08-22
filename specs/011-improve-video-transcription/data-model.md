@@ -24,6 +24,7 @@ Existing or updated background task model:
 - `error_message`: String (optional)
 - `created_at`: DateTime
 - `updated_at`: DateTime
+- `deleted_at`: DateTime (Soft delete)
 
 ### 3. State Transitions
 

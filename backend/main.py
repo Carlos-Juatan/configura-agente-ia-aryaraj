@@ -1815,6 +1815,62 @@ async def process_json_batch_endpoint(
         logger.error(f"Erro ao iniciar processamento de lote JSON: {repr(e)}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(repr(e)))
 
+@app.post("/knowledge-bases/{kb_id}/faq-import", dependencies=[Depends(verify_api_key), Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value]))])
+async def faq_import_file_endpoint(
+    kb_id: int,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Recebe um arquivo .txt ou .json com FAQs, parseia no servidor,
+    enfileira o processamento via TaskIQ e retorna imediatamente.
+    """
+    from models import BackgroundProcessLog
+    from tasks import import_faq_file_task
+    from services.faq_import_service import parse_file
+
+    kb = await db.get(KnowledgeBaseModel, kb_id)
+    if not kb:
+        raise HTTPException(status_code=404, detail="Knowledge base not found")
+
+    filename = file.filename.lower()
+    if not (filename.endswith(".txt") or filename.endswith(".json")):
+        raise HTTPException(status_code=400, detail="Formato de arquivo não suportado. Use .txt ou .json.")
+
+    content = await file.read()
+    if not content or len(content.strip()) == 0:
+        raise HTTPException(status_code=400, detail="O arquivo está vazio.")
+
+    try:
+        items = parse_file(content, file.filename)
+    except Exception as e:
+        logger.error(f"Erro ao parsear arquivo de FAQ {file.filename}: {e}")
+        raise HTTPException(status_code=400, detail=f"Erro ao ler arquivo: {str(e)}")
+
+    if not items or len(items) == 0:
+        raise HTTPException(status_code=400, detail="Nenhum FAQ válido encontrado no arquivo.")
+
+    log = BackgroundProcessLog(
+        process_name=f"Importação de FAQ ({file.filename})",
+        status="PENDENTE",
+        details={"kb_id": kb_id, "faq_count": len(items), "filename": file.filename}
+    )
+    db.add(log)
+    await db.commit()
+    await db.refresh(log)
+
+    task_result = await import_faq_file_task.kiq(log.id, kb_id, items)
+
+    log.task_id = task_result.task_id
+    db.add(log)
+    await db.commit()
+
+    return {
+        "message": "Importação enfileirada",
+        "log_id": log.id,
+        "faq_count": len(items)
+    }
+
 @app.post("/knowledge-bases/{kb_id}/import-mapped", dependencies=[Depends(verify_api_key)])
 async def import_mapped_file(
     kb_id: int, 

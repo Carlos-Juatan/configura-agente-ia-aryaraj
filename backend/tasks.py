@@ -700,3 +700,126 @@ async def process_kb_json_item_task(log_id: int, kb_id: int, payload: dict) -> N
         await _update_log_status(log_id, "ERRO", 0, error_message=str(e))
     finally:
         await engine.dispose()
+
+# ---------------------------------------------------------------------------
+# FAQ File Processing
+# ---------------------------------------------------------------------------
+
+@broker.task(task_name="import_faq_file_task")
+async def import_faq_file_task(log_id: int, kb_id: int, items: list[dict]) -> None:
+    """
+    Task para processar e persistir FAQs importados em lote.
+    """
+    try:
+        await _update_log_status(log_id, "PROCESSANDO", 5)
+        
+        from sqlalchemy.future import select
+        from sqlalchemy.exc import SQLAlchemyError
+        
+        total_items = len(items)
+        success_count = 0
+        duplicate_count = 0
+        error_count = 0
+        
+        async with async_session() as db:
+            kb = await db.get(KnowledgeBaseModel, kb_id)
+            if not kb:
+                raise Exception("Base de conhecimento não encontrada.")
+                
+            # Fetch existing items for duplicate check
+            existing_stmt = select(KnowledgeItemModel.question, KnowledgeItemModel.answer).where(
+                KnowledgeItemModel.knowledge_base_id == kb_id
+            )
+            res = await db.execute(existing_stmt)
+            existing_pairs = {(q.strip().lower(), a.strip().lower()) for q, a in res.all()}
+            
+            new_items_to_create = []
+            
+            for index, item_dict in enumerate(items):
+                try:
+                    q = str(item_dict.get("question", "")).strip()
+                    a = str(item_dict.get("answer", "")).strip()
+                    m = str(item_dict.get("metadata", "")).strip()
+                    c = "FAQ"  # Fixed as FAQ per FR-007
+                    
+                    if not q or not a:
+                        continue
+                        
+                    pair_key = (q.lower(), a.lower())
+                    if pair_key in existing_pairs:
+                        duplicate_count += 1
+                        continue
+                    
+                    # Mark as seen in this run to avoid duplicates within the same file
+                    existing_pairs.add(pair_key)
+                    
+                    new_items_to_create.append({
+                        "question": q,
+                        "answer": a,
+                        "metadata_val": m,
+                        "category": c
+                    })
+                except Exception as ie:
+                    logger.error(f"Erro ao preparar item {index}: {ie}")
+                    error_count += 1
+
+            # Process in batches of 50 for embedding generation and database insert
+            batch_size = 50
+            total_valid = len(new_items_to_create)
+            
+            for i in range(0, total_valid, batch_size):
+                batch = new_items_to_create[i:i + batch_size]
+                embedding_texts = [f"{it['metadata_val']} | {it['question']} | {it['answer']}" for it in batch]
+                
+                try:
+                    embeddings, _ = await get_batch_embeddings(embedding_texts)
+                except Exception as emb_err:
+                    logger.warning(f"Erro ao gerar embeddings em lote ({i} a {i+len(batch)}): {emb_err}")
+                    embeddings = None
+
+                for j, item_info in enumerate(batch):
+                    try:
+                        emb = embeddings[j] if embeddings and j < len(embeddings) else None
+                        new_item = KnowledgeItemModel(
+                            knowledge_base_id=kb_id,
+                            question=item_info["question"],
+                            answer=item_info["answer"],
+                            metadata_val=item_info["metadata_val"],
+                            category=item_info["category"],
+                            embedding=emb
+                        )
+                        db.add(new_item)
+                        success_count += 1
+                    except Exception as ie:
+                        logger.error(f"Erro ao adicionar item à sessão: {ie}")
+                        error_count += 1
+                
+                try:
+                    await db.commit()
+                except SQLAlchemyError as se:
+                    logger.error(f"Erro no commit do lote {i}: {se}")
+                    await db.rollback()
+
+                progress = 5 + int(((min(i + batch_size, total_valid)) / max(total_valid, 1)) * 90)
+                await _update_log_status(log_id, "PROCESSANDO", min(progress, 95))
+                    
+        await _update_log_status(
+            log_id, 
+            "CONCLUIDO", 
+            100, 
+            details_update={
+                "result": f"Processamento concluído. Sucessos: {success_count}, Duplicados: {duplicate_count}, Erros: {error_count}.",
+                "success_count": success_count,
+                "duplicate_count": duplicate_count,
+                "error_count": error_count,
+                "kb_id": kb_id
+            }
+        )
+        
+    except Exception as e:
+        logger.error("Erro CRÍTICO no import_faq_file_task %d: %s", log_id, str(e))
+        import traceback
+        logger.error(traceback.format_exc())
+        await _update_log_status(log_id, "ERRO", 0, error_message=str(e))
+    finally:
+        await engine.dispose()

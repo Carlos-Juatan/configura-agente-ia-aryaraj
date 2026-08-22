@@ -9,7 +9,7 @@
 
 **Purpose**: Preparação inicial e verificação de ambiente
 
-- [ ] T001 Verificar ambiente e arquivos de suporte para o parser de FAQs
+- [x] T001 Verificar ambiente e arquivos de suporte para o parser de FAQs
 
 ---
 
@@ -19,9 +19,9 @@
 
 **⚠️ CRITICAL**: Nenhuma história de usuário que dependa de upload/processamento pode ser finalizada sem esta fase pronta.
 
-- [ ] T002 Criar serviço de parsing `backend/services/faq_import_service.py` com suporte a `.txt` (48 hifens, [classificação], Q:, A:) e `.json` (array de objetos)
-- [ ] T003 [P] Registrar a task assíncrona `import_faq_file_task` em `backend/tasks.py` utilizando o TaskIQ e manipulando duplicatas e falhas parciais (FR-014, FR-015)
-- [ ] T004 Adicionar endpoint `POST /knowledge-bases/{kb_id}/faq-import` em `backend/main.py` integrando com `faq_import_service.py` e disparando a task via `kiq()`
+- [x] T002 Criar serviço de parsing `backend/services/faq_import_service.py` com suporte a `.txt` (48 hifens, [classificação], Q:, A:) e `.json` (array de objetos)
+- [x] T003 [P] Registrar a task assíncrona `import_faq_file_task` em `backend/tasks.py` utilizando o TaskIQ e manipulando duplicatas e falhas parciais (FR-014, FR-015)
+- [x] T004 Adicionar endpoint `POST /knowledge-bases/{kb_id}/faq-import` em `backend/main.py` integrando com `faq_import_service.py` e disparando a task via `kiq()`
 
 **Checkpoint**: Backend pronto para receber uploads e processar arquivos de FAQ em lote.
 
@@ -35,8 +35,8 @@
 
 ### Implementation for User Story 1
 
-- [ ] T005 [US1] Atualizar rótulo do botão de ação de "✨ Adicionar Novo" para "✨ Novo FAQ" em `frontend/src/components/KnowledgeBaseManager.jsx`
-- [ ] T006 [US1] Adicionar estado de controle de abas (`activeTab`) e renderizar a barra de navegação com as abas "FAQ Manual" e "Documentos" no modal em `frontend/src/components/KnowledgeBaseManager.jsx`
+- [x] T005 [US1] Atualizar rótulo do botão de ação de "✨ Adicionar Novo" para "✨ Novo FAQ" em `frontend/src/components/KnowledgeBaseManager.jsx`
+- [x] T006 [US1] Adicionar estado de controle de abas (`activeTab`) e renderizar a barra de navegação com as abas "FAQ Manual" e "Documentos" no modal em `frontend/src/components/KnowledgeBaseManager.jsx`
 
 **Checkpoint**: O botão exibe o novo texto e o modal abre com as abas estruturadas, mantendo "FAQ Manual" ativa.
 
@@ -50,8 +50,8 @@
 
 ### Implementation for User Story 2
 
-- [ ] T007 [US2] Renomear o título do formulário manual de "Novo Conhecimento" para "Adicionar FAQ Manualmente" dentro da aba "FAQ Manual" em `frontend/src/components/KnowledgeBaseManager.jsx`
-- [ ] T008 [US2] Garantir que o envio e as validações do formulário manual funcionem sem regressão em `frontend/src/components/KnowledgeBaseManager.jsx`
+- [x] T007 [US2] Renomear o título do formulário manual de "Novo Conhecimento" para "Adicionar FAQ Manualmente" dentro da aba "FAQ Manual" em `frontend/src/components/KnowledgeBaseManager.jsx`
+- [x] T008 [US2] Garantir que o envio e as validações do formulário manual funcionem sem regressão em `frontend/src/components/KnowledgeBaseManager.jsx`
 
 **Checkpoint**: Adição manual funcionando 100% sem regressão no novo layout do modal.
 
@@ -65,10 +65,10 @@
 
 ### Implementation for User Story 3
 
-- [ ] T009 [US3] Implementar o componente de upload/drag-and-drop e a validação do tipo de arquivo (.txt e .json) na aba "Documentos" em `frontend/src/components/KnowledgeBaseManager.jsx`
-- [ ] T010 [US3] Implementar a exibição da prévia indicando exclusivamente a contagem de FAQs válidos no arquivo (FR-017) em `frontend/src/components/KnowledgeBaseManager.jsx`
-- [ ] T011 [US3] Integrar a confirmação de envio com a API `POST /knowledge-bases/{kb_id}/faq-import`, lidando com confirmação imediata (< 3s) e exibição de feedback ao usuário em `frontend/src/components/KnowledgeBaseManager.jsx`
-- [ ] T012 [US3] Garantir que fechar o modal durante o enfileiramento não cancele a operação em background (FR-016) em `frontend/src/components/KnowledgeBaseManager.jsx`
+- [x] T009 [US3] Implementar o componente de upload/drag-and-drop e a validação do tipo de arquivo (.txt e .json) na aba "Documentos" em `frontend/src/components/KnowledgeBaseManager.jsx`
+- [x] T010 [US3] Implementar a exibição da prévia indicando exclusivamente a contagem de FAQs válidos no arquivo (FR-017) em `frontend/src/components/KnowledgeBaseManager.jsx`
+- [x] T011 [US3] Integrar a confirmação de envio com a API `POST /knowledge-bases/{kb_id}/faq-import`, lidando com confirmação imediata (< 3s) e exibição de feedback ao usuário em `frontend/src/components/KnowledgeBaseManager.jsx`
+- [x] T012 [US3] Garantir que fechar o modal durante o enfileiramento não cancele a operação em background (FR-016) em `frontend/src/components/KnowledgeBaseManager.jsx`
 
 **Checkpoint**: Importação em lote funcional via frontend e integrada ao backend/background task.
 
@@ -78,8 +78,8 @@
 
 **Purpose**: Ajustes finais de estilização, alinhamento visual e testes manuais operacionais.
 
-- [ ] T013 [P] Ajustar o estilo visual das abas do modal para manter a identidade glassmorphism/dark mode do projeto em `frontend/src/components/KnowledgeBaseManager.jsx`
-- [ ] T014 Validar o fluxo ponta a ponta com arquivos `.txt` e `.json` de exemplo
+- [x] T013 [P] Ajustar o estilo visual das abas do modal para manter a identidade glassmorphism/dark mode do projeto em `frontend/src/components/KnowledgeBaseManager.jsx`
+- [x] T014 Validar o fluxo ponta a ponta com arquivos `.txt` e `.json` de exemplo
 
 ---
 

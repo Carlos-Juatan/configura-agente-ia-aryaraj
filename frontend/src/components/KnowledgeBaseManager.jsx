@@ -16,6 +16,300 @@ import { useRole } from '../hooks/useRole';
  * - Manual Q&A entry form moved to AddNewEntryModal for better list visibility.
  * - Uses React portals for consistent z-index and accessibility.
  */
+const FaqDocumentUploader = ({ kbId, onClose }) => {
+    const [file, setFile] = useState(null);
+    const [status, setStatus] = useState('idle'); // 'idle' | 'parsing' | 'preview' | 'uploading' | 'success' | 'error'
+    const [faqCount, setFaqCount] = useState(0);
+    const [errorMessage, setErrorMessage] = useState('');
+    const [logId, setLogId] = useState(null);
+    const fileInputRef = useRef(null);
+
+    const parseAndValidateFile = async (selectedFile) => {
+        if (!selectedFile) return;
+        const name = selectedFile.name.toLowerCase();
+        if (!name.endsWith('.txt') && !name.endsWith('.json')) {
+            setStatus('error');
+            setErrorMessage('Formato não suportado. Use .txt ou .json.');
+            setFile(null);
+            setFaqCount(0);
+            return;
+        }
+
+        setStatus('parsing');
+        setErrorMessage('');
+        try {
+            const text = await selectedFile.text();
+            if (!text || !text.trim()) {
+                setStatus('error');
+                setErrorMessage('O arquivo está vazio.');
+                setFile(null);
+                setFaqCount(0);
+                return;
+            }
+
+            let count = 0;
+            if (name.endsWith('.json')) {
+                try {
+                    let parsed = JSON.parse(text);
+                    if (parsed && !Array.isArray(parsed)) {
+                        if (Array.isArray(parsed.faqs)) parsed = parsed.faqs;
+                        else if (Array.isArray(parsed.items)) parsed = parsed.items;
+                        else parsed = [parsed];
+                    }
+                    if (Array.isArray(parsed)) {
+                        count = parsed.filter(item => item && (item.question || item.pergunta) && (item.answer || item.resposta) && String(item.question || item.pergunta).trim() && String(item.answer || item.resposta).trim()).length;
+                    }
+                } catch (e) {
+                    setStatus('error');
+                    setErrorMessage('JSON inválido ou malformado.');
+                    setFile(null);
+                    setFaqCount(0);
+                    return;
+                }
+            } else {
+                // TXT parsing
+                const blocks = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split(/\n\s*-{10,}\s*\n/);
+                for (const rawBlock of blocks) {
+                    const b = rawBlock.trim();
+                    if (!b) continue;
+                    const hasQ = /^Q\s*:/mi.test(b);
+                    const hasA = /^A\s*:/mi.test(b);
+                    if (hasQ && hasA) {
+                        count++;
+                    }
+                }
+            }
+
+            if (count === 0) {
+                setStatus('error');
+                setErrorMessage('Nenhum FAQ válido encontrado no arquivo.');
+                setFile(null);
+                setFaqCount(0);
+            } else {
+                setFile(selectedFile);
+                setFaqCount(count);
+                setStatus('preview');
+            }
+        } catch (err) {
+            setStatus('error');
+            setErrorMessage('Erro ao ler o arquivo: ' + err.message);
+            setFile(null);
+            setFaqCount(0);
+        }
+    };
+
+    const handleFileChange = (e) => {
+        const selected = e.target.files[0];
+        if (selected) {
+            parseAndValidateFile(selected);
+        }
+    };
+
+    const handleDrop = (e) => {
+        e.preventDefault();
+        const selected = e.dataTransfer.files[0];
+        if (selected) {
+            parseAndValidateFile(selected);
+        }
+    };
+
+    const handleConfirmUpload = async () => {
+        if (!file || status === 'uploading') return;
+        setStatus('uploading');
+        setErrorMessage('');
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const res = await api.post(`/knowledge-bases/${kbId}/faq-import`, formData);
+            const data = await res.json();
+
+            if (res.ok) {
+                setLogId(data.log_id);
+                setFaqCount(data.faq_count || faqCount);
+                setStatus('success');
+            } else {
+                setStatus('error');
+                setErrorMessage(data.detail || 'Falha ao importar FAQs.');
+            }
+        } catch (err) {
+            setStatus('error');
+            setErrorMessage('Erro de rede ou conexão com o servidor.');
+        }
+    };
+
+    const handleReset = () => {
+        setFile(null);
+        setStatus('idle');
+        setFaqCount(0);
+        setErrorMessage('');
+        setLogId(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    return (
+        <div style={{ padding: '10px 0' }}>
+            <input
+                type="file"
+                ref={fileInputRef}
+                accept=".txt,.json"
+                onChange={handleFileChange}
+                style={{ display: 'none' }}
+            />
+
+            {status === 'success' ? (
+                <div style={{
+                    textAlign: 'center', padding: '30px 20px',
+                    background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)',
+                    borderRadius: '20px'
+                }}>
+                    <div style={{ fontSize: '3rem', marginBottom: '12px' }}>✅</div>
+                    <h3 style={{ color: '#10b981', fontSize: '1.4rem', fontWeight: 800, marginBottom: '8px' }}>
+                        Importação Enfileirada!
+                    </h3>
+                    <p style={{ color: '#cbd5e1', fontSize: '0.95rem', marginBottom: '16px' }}>
+                        <strong>{faqCount}</strong> FAQs enfileirados para importação em segundo plano.
+                        {logId && <span style={{ display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginTop: '6px' }}>ID do Processo: #{logId}</span>}
+                    </p>
+                    <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+                        <button
+                            onClick={handleReset}
+                            style={{
+                                padding: '12px 24px', background: 'rgba(255,255,255,0.05)',
+                                color: 'white', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px',
+                                fontWeight: 700, cursor: 'pointer'
+                            }}
+                        >
+                            Importar Outro Arquivo
+                        </button>
+                        <button
+                            onClick={onClose}
+                            style={{
+                                padding: '12px 24px', background: 'var(--accent-gradient)',
+                                color: 'white', border: 'none', borderRadius: '12px',
+                                fontWeight: 800, cursor: 'pointer'
+                            }}
+                        >
+                            Concluir
+                        </button>
+                    </div>
+                </div>
+            ) : (
+                <>
+                    <div
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={handleDrop}
+                        onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                        style={{
+                            border: '2px dashed ' + (status === 'error' ? '#ef4444' : status === 'preview' ? '#10b981' : 'rgba(99, 102, 241, 0.4)'),
+                            background: 'rgba(15, 23, 42, 0.5)',
+                            borderRadius: '24px',
+                            padding: '40px 20px',
+                            textAlign: 'center',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            marginBottom: '20px'
+                        }}
+                    >
+                        <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>
+                            {status === 'preview' ? '📄' : '📁'}
+                        </div>
+                        {file ? (
+                            <div>
+                                <div style={{ color: 'white', fontWeight: 800, fontSize: '1.1rem' }}>{file.name}</div>
+                                <div style={{ color: '#94a3b8', fontSize: '0.85rem', marginTop: '4px' }}>
+                                    {(file.size / 1024).toFixed(1)} KB
+                                </div>
+                            </div>
+                        ) : (
+                            <div>
+                                <div style={{ color: 'white', fontWeight: 800, fontSize: '1.1rem' }}>
+                                    Arraste e solte o arquivo aqui
+                                </div>
+                                <div style={{ color: '#94a3b8', fontSize: '0.85rem', marginTop: '6px' }}>
+                                    Suporta arquivos de FAQ em formato <strong>.txt</strong> ou <strong>.json</strong>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {status === 'preview' && (
+                        <div style={{
+                            background: 'rgba(16, 185, 129, 0.15)',
+                            border: '1px solid rgba(16, 185, 129, 0.3)',
+                            borderRadius: '16px',
+                            padding: '16px 20px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justify: 'space-between',
+                            marginBottom: '20px'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <span style={{ fontSize: '1.4rem' }}>📊</span>
+                                <span style={{ color: '#34d399', fontWeight: 800, fontSize: '1rem' }}>
+                                    {faqCount} FAQs encontrados
+                                </span>
+                            </div>
+                            <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Pronto para envio</span>
+                        </div>
+                    )}
+
+                    {status === 'error' && errorMessage && (
+                        <div style={{
+                            background: 'rgba(239, 68, 68, 0.15)',
+                            border: '1px solid rgba(239, 68, 68, 0.3)',
+                            borderRadius: '16px',
+                            padding: '16px 20px',
+                            color: '#f87171',
+                            fontWeight: 700,
+                            fontSize: '0.9rem',
+                            marginBottom: '20px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px'
+                        }}>
+                            <span>⚠️</span>
+                            <span>{errorMessage}</span>
+                        </div>
+                    )}
+
+                    <div style={{ display: 'flex', gap: '16px', marginTop: '24px' }}>
+                        <button
+                            onClick={onClose}
+                            style={{
+                                flex: 1, padding: '16px', background: 'rgba(255,255,255,0.05)',
+                                color: 'white', border: 'none', borderRadius: '16px', fontWeight: 700, cursor: 'pointer'
+                            }}
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            onClick={handleConfirmUpload}
+                            disabled={status !== 'preview'}
+                            style={{
+                                flex: 2, padding: '16px', background: 'var(--accent-gradient)',
+                                color: 'white', border: 'none', borderRadius: '16px', fontWeight: 900, cursor: 'pointer',
+                                boxShadow: '0 10px 25px rgba(99, 102, 241, 0.4)',
+                                opacity: status !== 'preview' ? 0.5 : 1,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
+                            }}
+                        >
+                            {status === 'uploading' ? (
+                                <>
+                                    <div className="spin" style={{ width: '18px', height: '18px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: 'white', borderRadius: '50%' }}></div>
+                                    Enviando...
+                                </>
+                            ) : (
+                                <>🚀 Confirmar Importação</>
+                            )}
+                        </button>
+                    </div>
+                </>
+            )}
+        </div>
+    );
+};
+
 const KnowledgeBaseManager = ({ knowledgeBase = [], onChange, onAdd, onDelete, onUpdate, collapsible = true, kbType = 'qa', kbId }) => {
     const [isExpanded, setIsExpanded] = useState(!collapsible);
     const [currentPage, setCurrentPage] = useState(1);
@@ -91,6 +385,7 @@ const KnowledgeBaseManager = ({ knowledgeBase = [], onChange, onAdd, onDelete, o
     const [textForProcessing, setTextForProcessing] = useState('');
     const [isAddDocsModalOpen, setIsAddDocsModalOpen] = useState(false);
     const [isAddNewModalOpen, setIsAddNewModalOpen] = useState(false);
+    const [faqModalTab, setFaqModalTab] = useState('manual');
 
     const [isBulkEditOpen, setIsBulkEditOpen] = useState(false);
     const [bulkEditForm, setBulkEditForm] = useState({
@@ -867,7 +1162,7 @@ const KnowledgeBaseManager = ({ knowledgeBase = [], onChange, onAdd, onDelete, o
 
             <div className="kb-content" style={{ animation: 'fadeIn 0.4s ease-out' }}>
                 <div className="kb-quick-actions">
-                    <button onClick={() => setIsAddNewModalOpen(true)} className="kb-quick-action-btn">✨ Adicionar Novo</button>
+                    <button onClick={() => { setFaqModalTab('manual'); setIsAddNewModalOpen(true); }} className="kb-quick-action-btn">✨ Novo FAQ</button>
                     {isTeam && (
                         <>
                             <button onClick={() => setIsAddDocsModalOpen(true)} className="kb-quick-action-btn">📂 Adicionar Documentos</button>
@@ -4068,10 +4363,12 @@ const KnowledgeBaseManager = ({ knowledgeBase = [], onChange, onAdd, onDelete, o
                         padding: '40px', boxShadow: '0 30px 60px rgba(0,0,0,0.8)',
                         maxHeight: '90vh', overflowY: 'auto'
                     }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                                 <div style={{ width: '8px', height: '24px', background: 'var(--accent-gradient)', borderRadius: '4px' }}></div>
-                                <h4 style={{ color: 'white', fontSize: '1.5rem', fontWeight: 800, margin: 0 }}>Novo Conhecimento</h4>
+                                <h4 style={{ color: 'white', fontSize: '1.5rem', fontWeight: 800, margin: 0 }}>
+                                    {faqModalTab === 'manual' ? 'Adicionar FAQ Manualmente' : 'Importar FAQs por Documento'}
+                                </h4>
                             </div>
                             <button
                                 onClick={() => setIsAddNewModalOpen(false)}
@@ -4079,64 +4376,108 @@ const KnowledgeBaseManager = ({ knowledgeBase = [], onChange, onAdd, onDelete, o
                             >✕</button>
                         </div>
 
-                        <div className="form-row-kb">
-                            <div className="form-group flex-2">
-                                <ExpandableField
-                                    label={kbLabels.question}
-                                    placeholder={`Ex: ${kbLabels.question === 'Pergunta' ? 'Qual o horário de funcionamento?' : 'Digite aqui...'}`}
-                                    value={newPair.question}
-                                    onChange={(e) => setNewPair({ ...newPair, question: e.target.value })}
-                                />
-                            </div>
-                            <div className="form-group flex-2">
-                                <ExpandableField
-                                    label={kbLabels.metadata}
-                                    placeholder={`Ex: ${kbLabels.metadata === 'Metadado' ? 'PAINEL INICIAL | Chat' : 'Digite aqui...'}`}
-                                    value={newPair.metadata_val}
-                                    onChange={(e) => setNewPair({ ...newPair, metadata_val: e.target.value })}
-                                />
-                            </div>
-                            <div className="form-group flex-1">
-                                <label>Categoria</label>
-                                <input
-                                    type="text"
-                                    value={newPair.category}
-                                    onChange={e => setNewPair({ ...newPair, category: e.target.value })}
-                                    placeholder="Geral, Preços, etc."
-                                    style={{ width: '100%', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '12px', color: 'white' }}
-                                />
-                            </div>
-                        </div>
-                        <div className="form-group" style={{ marginTop: '1.5rem' }}>
-                            <ExpandableField
-                                label={kbLabels.answer}
-                                type="textarea"
-                                placeholder={`Ex: ${kbLabels.answer === 'Resposta' ? 'O horário é...' : 'Digite o conteúdo...'}`}
-                                value={newPair.answer}
-                                onChange={(e) => setNewPair({ ...newPair, answer: e.target.value })}
-                                style={{ minHeight: '200px' }}
-                            />
+                        {/* Navigation Tabs */}
+                        <div style={{ display: 'flex', gap: '12px', marginBottom: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '12px' }}>
+                            <button
+                                type="button"
+                                onClick={() => setFaqModalTab('manual')}
+                                style={{
+                                    padding: '10px 20px',
+                                    borderRadius: '12px',
+                                    border: 'none',
+                                    background: faqModalTab === 'manual' ? 'var(--accent-gradient)' : 'rgba(255,255,255,0.05)',
+                                    color: 'white',
+                                    fontWeight: 800,
+                                    cursor: 'pointer',
+                                    fontSize: '0.9rem',
+                                    transition: 'all 0.2s ease'
+                                }}
+                            >
+                                ✍️ FAQ Manual
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setFaqModalTab('documents')}
+                                style={{
+                                    padding: '10px 20px',
+                                    borderRadius: '12px',
+                                    border: 'none',
+                                    background: faqModalTab === 'documents' ? 'var(--accent-gradient)' : 'rgba(255,255,255,0.05)',
+                                    color: 'white',
+                                    fontWeight: 800,
+                                    cursor: 'pointer',
+                                    fontSize: '0.9rem',
+                                    transition: 'all 0.2s ease'
+                                }}
+                            >
+                                📁 Documentos (.txt, .json)
+                            </button>
                         </div>
 
-                        <div style={{ display: 'flex', gap: '16px', marginTop: '32px' }}>
-                            <button
-                                onClick={() => setIsAddNewModalOpen(false)}
-                                style={{ flex: 1, padding: '18px', background: 'rgba(255,255,255,0.05)', color: 'white', border: 'none', borderRadius: '16px', fontWeight: 700, cursor: 'pointer' }}
-                            >Cancelar</button>
-                            <button
-                                onClick={() => {
-                                    handleAddItem();
-                                    setIsAddNewModalOpen(false);
-                                }}
-                                disabled={!newPair.question.trim() || !newPair.answer.trim()}
-                                style={{
-                                    flex: 2, padding: '18px', background: 'var(--accent-gradient)',
-                                    color: 'white', border: 'none', borderRadius: '16px', fontWeight: 900, cursor: 'pointer',
-                                    boxShadow: '0 10px 25px rgba(99, 102, 241, 0.4)',
-                                    opacity: (!newPair.question.trim() || !newPair.answer.trim()) ? 0.5 : 1
-                                }}
-                            >✨ Adicionar à Base</button>
-                        </div>
+                        {faqModalTab === 'manual' ? (
+                            <>
+                                <div className="form-row-kb">
+                                    <div className="form-group flex-2">
+                                        <ExpandableField
+                                            label={kbLabels.question}
+                                            placeholder={`Ex: ${kbLabels.question === 'Pergunta' ? 'Qual o horário de funcionamento?' : 'Digite aqui...'}`}
+                                            value={newPair.question}
+                                            onChange={(e) => setNewPair({ ...newPair, question: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="form-group flex-2">
+                                        <ExpandableField
+                                            label={kbLabels.metadata}
+                                            placeholder={`Ex: ${kbLabels.metadata === 'Metadado' ? 'PAINEL INICIAL | Chat' : 'Digite aqui...'}`}
+                                            value={newPair.metadata_val}
+                                            onChange={(e) => setNewPair({ ...newPair, metadata_val: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="form-group flex-1">
+                                        <label>Categoria</label>
+                                        <input
+                                            type="text"
+                                            value={newPair.category}
+                                            onChange={e => setNewPair({ ...newPair, category: e.target.value })}
+                                            placeholder="Geral, Preços, etc."
+                                            style={{ width: '100%', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '12px', color: 'white' }}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="form-group" style={{ marginTop: '1.5rem' }}>
+                                    <ExpandableField
+                                        label={kbLabels.answer}
+                                        type="textarea"
+                                        placeholder={`Ex: ${kbLabels.answer === 'Resposta' ? 'O horário é...' : 'Digite o conteúdo...'}`}
+                                        value={newPair.answer}
+                                        onChange={(e) => setNewPair({ ...newPair, answer: e.target.value })}
+                                        style={{ minHeight: '200px' }}
+                                    />
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '16px', marginTop: '32px' }}>
+                                    <button
+                                        onClick={() => setIsAddNewModalOpen(false)}
+                                        style={{ flex: 1, padding: '18px', background: 'rgba(255,255,255,0.05)', color: 'white', border: 'none', borderRadius: '16px', fontWeight: 700, cursor: 'pointer' }}
+                                    >Cancelar</button>
+                                    <button
+                                        onClick={() => {
+                                            handleAddItem();
+                                            setIsAddNewModalOpen(false);
+                                        }}
+                                        disabled={!newPair.question.trim() || !newPair.answer.trim()}
+                                        style={{
+                                            flex: 2, padding: '18px', background: 'var(--accent-gradient)',
+                                            color: 'white', border: 'none', borderRadius: '16px', fontWeight: 900, cursor: 'pointer',
+                                            boxShadow: '0 10px 25px rgba(99, 102, 241, 0.4)',
+                                            opacity: (!newPair.question.trim() || !newPair.answer.trim()) ? 0.5 : 1
+                                        }}
+                                    >✨ Adicionar à Base</button>
+                                </div>
+                            </>
+                        ) : (
+                            <FaqDocumentUploader kbId={kbId} onClose={() => setIsAddNewModalOpen(false)} />
+                        )}
                     </div>
                 </div>,
                 document.body

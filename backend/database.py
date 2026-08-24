@@ -147,6 +147,10 @@ async def init_db():
                 "ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS metadata_val TEXT",
                 "ALTER TABLE session_summaries ADD COLUMN IF NOT EXISTS is_test_session BOOLEAN DEFAULT FALSE",
                 "ALTER TABLE session_summaries ADD COLUMN IF NOT EXISTS test_report JSONB",
+                "ALTER TABLE background_process_logs ADD COLUMN IF NOT EXISTS execution_log JSONB DEFAULT '[]'::jsonb",
+                "ALTER TABLE background_process_logs ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 0",
+                "ALTER TABLE background_process_logs ADD COLUMN IF NOT EXISTS language VARCHAR",
+                "ALTER TABLE background_process_logs ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP",
                 # New Roles and Invitations Migrations
                 "UPDATE users SET role = 'USUARIO' WHERE role NOT IN ('SUPERADMIN', 'ADMIN', 'USUARIO_ADMIN', 'USUARIO')",
                 """

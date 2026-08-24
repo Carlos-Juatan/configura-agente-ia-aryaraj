@@ -1,60 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { API_URL, AGENT_API_KEY } from '../config';
-
-const StatusDetailModal = ({ task, onClose }) => {
-    if (!task) return null;
-
-    const details = task.details || {};
-
-    return (
-        <div className="modal-overlay" onClick={onClose}>
-            <div className="modal-content" onClick={e => e.stopPropagation()} style={{ width: '600px', maxHeight: '85vh', overflowY: 'auto' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                    <h3 style={{ margin: 0 }}>Detalhes do Log</h3>
-                    <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '20px' }}>✕</button>
-                </div>
-
-                <div style={{ padding: '15px', background: 'var(--bg-dark)', borderRadius: '8px', marginBottom: '20px' }}>
-                    <div style={{ marginBottom: '10px' }}><strong>Status Final:</strong> {task.status}</div>
-                    <div style={{ marginBottom: '10px' }}><strong>Id:</strong> {task.id}</div>
-                    <div style={{ marginBottom: '10px' }}><strong>Criado em:</strong> {new Date(task.created_at).toLocaleString()}</div>
-                    <div style={{ marginBottom: '10px' }}><strong>Iniciou o processo:</strong> {new Date(task.updated_at).toLocaleString()}</div>
-                    {task.error_message && (
-                        <div style={{ marginTop: '10px', color: '#ef4444', padding: '10px', border: '1px solid #ef4444', borderRadius: '4px' }}>
-                            <strong>Ocorreu um erro:</strong> {task.error_message}
-                        </div>
-                    )}
-                </div>
-
-                <h4>Configurações Usadas</h4>
-                <div style={{ padding: '15px', background: 'var(--bg-dark)', borderRadius: '8px', marginBottom: '20px' }}>
-                    <div style={{ marginBottom: '8px' }}><strong>Vídeo:</strong> {details.video_path || "N/A"}</div>
-                    {details.options && (
-                        <ul style={{ paddingLeft: '20px', margin: '10px 0' }}>
-                           {details.options.gerar_resumo && <li>Gerou Resumo IA</li>}
-                           {details.options.extrair_perguntas && <li>Extraiu Perguntas e Respostas</li>}
-                           {details.options.extrair_chunks && <li>Extraiu Chunks para Vetorização</li>}
-                        </ul>
-                    )}
-                    <h5 style={{ margin: '15px 0 5px 0' }}>Metadados:</h5>
-                    <pre style={{ margin: 0, padding: '10px', background: 'var(--bg-lighter)', borderRadius: '4px', fontSize: '13px', overflowX: 'auto' }}>
-                        {JSON.stringify(details.metadata || {}, null, 2)}
-                    </pre>
-                </div>
-
-                <h4>Resultados (Exemplo)</h4>
-                 <div style={{ padding: '15px', background: 'var(--bg-dark)', borderRadius: '8px', marginBottom: '20px' }}>
-                     {/* Aqui entraríamos com as condicionais reais de resultados disponíveis no BD */}
-                     <span style={{ color: 'var(--text-muted)' }}>Conteúdos transcritos e extratos ficariam disponíveis aqui para download caso o processamento tenha sido concluído.</span>
-                 </div>
-
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
-                    <button type="button" className="save-btn" onClick={onClose}>Fechar</button>
-                </div>
-            </div>
-        </div>
-    );
-};
+import TaskDetailsModal from './TaskDetailsModal';
 
 const BackgroundTasks = () => {
     const [tasks, setTasks] = useState([]);
@@ -254,7 +200,7 @@ const BackgroundTasks = () => {
             </div>
 
             {selectedTask && (
-                <StatusDetailModal task={selectedTask} onClose={() => setSelectedTask(null)} />
+                <TaskDetailsModal task={selectedTask} onClose={() => setSelectedTask(null)} />
             )}
         </div>
     );

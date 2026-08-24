@@ -1549,10 +1549,12 @@ async def process_media_background_endpoint(
     file: UploadFile = File(...),
     config: str = Form("{}"),
     is_media: str = Form("true"),
+    language: str = Form("auto"),  # T010: language selection for transcription
     db: AsyncSession = Depends(get_db)
 ):
     """
     Inicia o processamento de arquivo de mídia ou texto em background para uma base de conhecimento.
+    Aceita parâmetro `language` ("auto", "pt", "en", "es") para controlar o idioma da transcrição.
     """
     from models import BackgroundProcessLog
     from tasks import process_kb_media_task
@@ -1560,13 +1562,23 @@ async def process_media_background_endpoint(
     try:
         config_dict = json.loads(config)
         is_media_bool = is_media.lower() == "true"
+        language = language or "auto"
         suffix = os.path.splitext(file.filename)[1]
         
-        # Cria o log inicial no banco
+        # Cria o log inicial no banco com language e retry_count
         log = BackgroundProcessLog(
             process_name=f"Processamento de Arquivo ({file.filename})",
             status="PENDENTE",
-            details={"kb_id": kb_id, "is_media": is_media_bool}
+            language=language,
+            retry_count=0,
+            execution_log=[],
+            details={
+                "kb_id": kb_id,
+                "is_media": is_media_bool,
+                "options": config_dict,
+                "metadata_val": config_dict.get("metadata", ""),
+                "original_filename": file.filename,
+            }
         )
         db.add(log)
         await db.commit()
@@ -1606,13 +1618,14 @@ async def process_media_background_endpoint(
                 file_path = tmp.name
                 logger.info(f"Arquivo salvo localmente: {file_path}")
 
-        # Prepara o payload para a tarefa
+        # Prepara o payload para a tarefa (inclui language para T008/T017)
         payload = {
             "file_path": file_path,
             "is_media": is_media_bool,
             "options": config_dict,
             "metadata_val": config_dict.get("metadata", ""),
-            "original_filename": file.filename
+            "original_filename": file.filename,
+            "language": language,  # T010: forward language to task
         }
         
         # Dispara a tarefa via TaskIQ
@@ -1631,6 +1644,8 @@ async def process_media_background_endpoint(
     except Exception as e:
         logger.error(f"Erro ao iniciar background de mídia: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
 
 @app.post("/knowledge-bases/analyze-file", dependencies=[Depends(verify_api_key)])
 async def analyze_kb_file(file: UploadFile = File(...)):

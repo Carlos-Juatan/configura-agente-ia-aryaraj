@@ -321,6 +321,12 @@ class BackgroundProcessLog(Base):
     progress = Column(Integer, default=0) # 0 to 100
     details = Column(JSON, default={}) # Configurações, metadados, links para txt/json gerados
     error_message = Column(Text, nullable=True)
+    # --- New fields for Feature 011 ---
+    execution_log = Column(JSON, default=[])  # List of {timestamp, level, message} entries (max 5000)
+    retry_count = Column(Integer, default=0)  # Auto-retry counter (max 3)
+    language = Column(String, nullable=True)  # Language selected for video transcription (e.g. "auto", "pt", "en", "es")
+    deleted_at = Column(DateTime, nullable=True)  # Soft delete support
+    # ----------------------------------
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

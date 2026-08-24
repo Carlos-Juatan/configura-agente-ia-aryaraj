@@ -67,7 +67,8 @@ const KnowledgeBaseManager = ({ knowledgeBase = [], onChange, onAdd, onDelete, o
         extractChunks: false,
         generateSummary: false,
         chunkSize: 1500,
-        chunkOverlap: 150
+        chunkOverlap: 150,
+        language: 'auto'
     });
 
     // Estados para Upload JSON em lote
@@ -754,6 +755,7 @@ const KnowledgeBaseManager = ({ knowledgeBase = [], onChange, onAdd, onDelete, o
             formData.append('file', selectedVideoFile);
             formData.append('config', JSON.stringify(finalRagConfig));
             formData.append('is_media', selectedMediaType === 'media' ? 'true' : 'false');
+            formData.append('language', ragConfig.language || 'auto');
 
             const response = await api.post(`/knowledge-bases/${kbId}/video-background`, formData);
 
@@ -3190,6 +3192,35 @@ const KnowledgeBaseManager = ({ knowledgeBase = [], onChange, onAdd, onDelete, o
                                 </div>
                             </div>
                         </div>
+
+                        {selectedMediaType === 'media' && (
+                            <div className="form-group" style={{ marginBottom: '32px' }}>
+                                <label style={{ display: 'block', color: '#818cf8', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '10px' }}>
+                                    Idioma da Transcrição
+                                </label>
+                                <select 
+                                    value={ragConfig.language || 'auto'}
+                                    onChange={(e) => setRagConfig(prev => ({ ...prev, language: e.target.value }))}
+                                    style={{
+                                        width: '100%',
+                                        background: 'rgba(255,255,255,0.03)',
+                                        border: '1px solid rgba(255,255,255,0.1)',
+                                        color: 'white',
+                                        padding: '12px 16px',
+                                        borderRadius: '12px',
+                                        fontSize: '0.95rem',
+                                        outline: 'none',
+                                        appearance: 'none',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    <option value="auto" style={{ background: '#0f172a' }}>Automático (Detectar idioma principal)</option>
+                                    <option value="pt" style={{ background: '#0f172a' }}>Português (Brasil)</option>
+                                    <option value="en" style={{ background: '#0f172a' }}>Inglês (Estados Unidos)</option>
+                                    <option value="es" style={{ background: '#0f172a' }}>Espanhol</option>
+                                </select>
+                            </div>
+                        )}
 
                         {ragConfig.extractChunks && (
                             <div className="fade-in" style={{ padding: '20px', background: 'rgba(255,255,255,0.02)', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.05)', marginBottom: '32px' }}>

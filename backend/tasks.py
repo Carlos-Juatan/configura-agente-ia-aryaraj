@@ -7,7 +7,9 @@ via the TaskIQ worker state (lifecycle hooks in broker.py).
 """
 
 import os
+import asyncio
 import logging
+import traceback
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text
@@ -19,6 +21,7 @@ from transcription_service import transcribe_video
 from smart_importer import chunk_text, generate_global_qa
 from rag_service import get_batch_embeddings
 from services.s3_service import s3_service
+from services.task_logger_service import append_log, append_error, clear_log, build_initial_log_entry
 
 logger = logging.getLogger("taskiq.tasks")
 
@@ -272,76 +275,82 @@ async def process_video_task(log_id: int, payload: dict) -> None:
 # KB Media Processing
 # ---------------------------------------------------------------------------
 
+# Progressive retry delays in seconds: attempt 1→30s, attempt 2→90s, attempt 3→180s
+_RETRY_DELAYS = [30, 90, 180]
+_MAX_RETRIES = 3
+
+
 @broker.task(task_name="process_kb_media_task")
 async def process_kb_media_task(log_id: int, kb_id: int, payload: dict) -> None:
     """
-    Task para processamento de arquivos (mídia ou txt) em background diretos
-    para uma Base de Conhecimento específica.
+    Task para processamento de arquivos (mídia ou txt) em background para
+    uma Base de Conhecimento específica.
+
+    Features:
+    - Structured execution_log via task_logger_service (FR-002, FR-003)
+    - Auto-retry up to 3 times with progressive delay (FR-011)
+    - Language parameter forwarded to transcription (FR-007, FR-008)
     """
     file_path = payload.get("file_path")
+    language = payload.get("language", "auto")
+
+    # ── Initialise the execution log ────────────────────────────────────────
+    task_type = "Transcrição de Vídeo/Mídia" if payload.get("is_media", True) else "Leitura de Arquivo de Texto"
+    await append_log(log_id, build_initial_log_entry(task_type, language)["message"])
+
+    # Retrieve current retry count from DB
+    async with async_session() as db:
+        _log_row = await db.get(BackgroundProcessLog, log_id)
+        current_retry = (_log_row.retry_count or 0) if _log_row else 0
+
     try:
         is_media = payload.get("is_media", True)
         options = payload.get("options", {})
         metadata_val = payload.get("metadata_val", "")
         if isinstance(metadata_val, (dict, list)):
             import json
-
             metadata_val = json.dumps(metadata_val)
         else:
             metadata_val = str(metadata_val) if metadata_val else ""
 
         await _update_log_status(log_id, "PROCESSANDO", 5)
+        await append_log(log_id, f"📋 Configurações carregadas. KB alvo: {kb_id} | Tipo: {'Mídia' if is_media else 'Texto'} | Opções: {list(options.keys())}")
 
         text_transcribed = ""
         duration = 0
 
+        # ── Transcription / Text reading phase ─────────────────────────────
         try:
             if is_media:
-                import asyncio
-
-                await _update_log_status(
-                    log_id,
-                    "PROCESSANDO",
-                    10,
-                    details_update={"step": "Transcrevendo arquivo"},
-                )
+                await _update_log_status(log_id, "PROCESSANDO", 10, details_update={"step": "Transcrevendo arquivo"})
+                await append_log(log_id, f"🎬 Iniciando transcrição de mídia via AssemblyAI (idioma: {language})...")
 
                 actual_path = file_path
                 if s3_service.enabled and file_path and not os.path.exists(file_path):
                     actual_path = s3_service.get_presigned_url(file_path)
+                    await append_log(log_id, f"☁️  Arquivo no S3, gerando URL pré-assinada: {file_path}")
                     logger.info("Usando URL pré-assinada para S3: %s", file_path)
 
-                trans_result = await asyncio.to_thread(
-                    transcribe_video, actual_path, {}
-                )
+                # Pass language config to transcription service
+                trans_config = {"language": language}
+                trans_result = await asyncio.to_thread(transcribe_video, actual_path, trans_config)
                 text_transcribed = trans_result.get("text", "")
                 duration = trans_result.get("duration", 0)
 
-                await _update_log_status(
-                    log_id,
-                    "PROCESSANDO",
-                    45,
-                    details_update={"step": "Transcrição Concluída"},
-                )
+                await _update_log_status(log_id, "PROCESSANDO", 45, details_update={"step": "Transcrição Concluída"})
+                await append_log(log_id, f"✅ Transcrição concluída! Duração do áudio: {round(duration, 1)}s | Caracteres extraídos: {len(text_transcribed)}")
             else:
-                await _update_log_status(
-                    log_id,
-                    "PROCESSANDO",
-                    10,
-                    details_update={"step": "Lendo arquivo de texto"},
-                )
+                await _update_log_status(log_id, "PROCESSANDO", 10, details_update={"step": "Lendo arquivo de texto"})
+                await append_log(log_id, f"📄 Lendo arquivo de texto: {payload.get('original_filename', file_path)}")
                 if os.path.exists(file_path):
                     with open(file_path, "r", encoding="utf-8") as f:
                         text_transcribed = f.read()
-                    await _update_log_status(
-                        log_id,
-                        "PROCESSANDO",
-                        40,
-                        details_update={"read": "Concluída"},
-                    )
+                    await _update_log_status(log_id, "PROCESSANDO", 40, details_update={"read": "Concluída"})
+                    await append_log(log_id, f"✅ Arquivo lido. Caracteres: {len(text_transcribed)}")
                 else:
                     raise Exception(f"Arquivo local não encontrado: {file_path}")
         finally:
+            # Always attempt to clean up temp files
             if file_path:
                 if os.path.exists(file_path):
                     try:
@@ -355,12 +364,13 @@ async def process_kb_media_task(log_id: int, kb_id: int, payload: dict) -> None:
                         pass
 
         if not text_transcribed.strip():
-            await _update_log_status(
-                log_id, "ERRO", 0, error_message="Nenhum texto detectado no arquivo."
-            )
+            await append_log(log_id, "❌ Nenhum texto detectado no arquivo.", level="ERROR")
+            await _update_log_status(log_id, "ERRO", 0, error_message="Nenhum texto detectado no arquivo.")
             return
 
-        # RAG Processamento Assíncrono para a KB específica
+        # ── RAG Processing phase ────────────────────────────────────────────
+        await append_log(log_id, f"🧠 Iniciando processamento RAG na Base de Conhecimento {kb_id}...")
+
         async def _process_kb_rag():
             async with async_session() as db:
                 kb = await db.get(KnowledgeBaseModel, kb_id)
@@ -369,12 +379,11 @@ async def process_kb_media_task(log_id: int, kb_id: int, payload: dict) -> None:
 
                 items_to_add = []
 
-                # Q&A Extração
+                # Q&A Extraction
                 if options.get("extractQA"):
+                    await append_log(log_id, "❓ Extraindo pares de Pergunta & Resposta via IA...")
                     num_q = max(3, min(15, len(text_transcribed) // 500))
-                    qa_list, _ = await generate_global_qa(
-                        text_transcribed, total_questions=num_q
-                    )
+                    qa_list, _ = await generate_global_qa(text_transcribed, total_questions=num_q)
                     if qa_list:
                         for item in qa_list:
                             items_to_add.append(
@@ -386,18 +395,14 @@ async def process_kb_media_task(log_id: int, kb_id: int, payload: dict) -> None:
                                     category="Transcrição API",
                                 )
                             )
-                    await _update_log_status(
-                        log_id,
-                        "PROCESSANDO",
-                        50,
-                        details_update={"step": "Q&A Extraído"},
-                    )
+                    await _update_log_status(log_id, "PROCESSANDO", 50, details_update={"step": "Q&A Extraído"})
+                    await append_log(log_id, f"✅ {len(qa_list or [])} pares de Q&A gerados.")
 
-                # Resumo
+                # Summary
                 if options.get("generateSummary"):
+                    await append_log(log_id, "📝 Gerando resumo executivo via IA...")
                     try:
                         from agent import get_openai_client
-
                         client = get_openai_client()
                         if client:
                             response = await client.chat.completions.create(
@@ -412,10 +417,7 @@ async def process_kb_media_task(log_id: int, kb_id: int, payload: dict) -> None:
                                             "executiva e clara. Use Português do Brasil."
                                         ),
                                     },
-                                    {
-                                        "role": "user",
-                                        "content": f"Texto para resumir:\n\n{text_transcribed}",
-                                    },
+                                    {"role": "user", "content": f"Texto para resumir:\n\n{text_transcribed}"},
                                 ],
                                 temperature=0.5,
                             )
@@ -429,23 +431,19 @@ async def process_kb_media_task(log_id: int, kb_id: int, payload: dict) -> None:
                                     category="Resumo",
                                 )
                             )
+                            await append_log(log_id, "✅ Resumo executivo gerado com sucesso.")
                     except Exception as e:
+                        await append_log(log_id, f"⚠️  Erro ao gerar resumo: {e}", level="WARNING")
                         logger.error("Erro no resumo process_kb_media_task: %s", e)
 
-                    await _update_log_status(
-                        log_id,
-                        "PROCESSANDO",
-                        55,
-                        details_update={"step": "Resumo Gerado"},
-                    )
+                    await _update_log_status(log_id, "PROCESSANDO", 55, details_update={"step": "Resumo Gerado"})
 
-                # Chunks Extration
+                # Chunks
                 if options.get("extractChunks"):
                     c_size = options.get("chunkSize", 1500)
                     c_overlap = options.get("chunkOverlap", 150)
-                    chunks = chunk_text(
-                        text_transcribed, chunk_size=c_size, overlap=c_overlap
-                    )
+                    await append_log(log_id, f"🧩 Fragmentando conteúdo em chunks (tamanho: {c_size}, sobreposição: {c_overlap})...")
+                    chunks = chunk_text(text_transcribed, chunk_size=c_size, overlap=c_overlap)
                     for i, chunk in enumerate(chunks):
                         items_to_add.append(
                             KnowledgeItemModel(
@@ -456,15 +454,12 @@ async def process_kb_media_task(log_id: int, kb_id: int, payload: dict) -> None:
                                 category="Chunking",
                             )
                         )
-                    await _update_log_status(
-                        log_id,
-                        "PROCESSANDO",
-                        60,
-                        details_update={"step": "Chunks Gerados"},
-                    )
+                    await _update_log_status(log_id, "PROCESSANDO", 60, details_update={"step": "Chunks Gerados"})
+                    await append_log(log_id, f"✅ {len(chunks)} chunks gerados.")
 
-                # Fallback Se Nada Foi Marcado
+                # Fallback
                 if not items_to_add:
+                    await append_log(log_id, "ℹ️  Nenhuma opção de extração selecionada. Salvando conteúdo integral.")
                     items_to_add.append(
                         KnowledgeItemModel(
                             knowledge_base_id=kb_id,
@@ -477,10 +472,10 @@ async def process_kb_media_task(log_id: int, kb_id: int, payload: dict) -> None:
 
                 db.add_all(items_to_add)
                 await db.commit()
-
                 await _update_log_status(log_id, "PROCESSANDO", 60)
 
-                # Gerar Embeddings
+                # Embeddings
+                await append_log(log_id, f"🔢 Gerando embeddings vetoriais para {len(items_to_add)} itens...")
                 batch_size = 50
                 total_items = len(items_to_add)
                 for i in range(0, total_items, batch_size):
@@ -494,9 +489,7 @@ async def process_kb_media_task(log_id: int, kb_id: int, payload: dict) -> None:
                         if embeddings and j < len(embeddings):
                             item.embedding = embeddings[j]
 
-                    current_prog = 60 + int(
-                        ((i + len(batch)) / total_items) * 35
-                    )
+                    current_prog = 60 + int(((i + len(batch)) / total_items) * 35)
                     await _update_log_status(log_id, "PROCESSANDO", current_prog)
 
                 await db.commit()
@@ -504,6 +497,7 @@ async def process_kb_media_task(log_id: int, kb_id: int, payload: dict) -> None:
 
         total_count = await _process_kb_rag()
 
+        await append_log(log_id, f"🎉 Processamento concluído com sucesso! {total_count} itens adicionados à KB {kb_id}.")
         await _update_log_status(
             log_id,
             "CONCLUIDO",
@@ -517,11 +511,42 @@ async def process_kb_media_task(log_id: int, kb_id: int, payload: dict) -> None:
         )
 
     except Exception as e:
-        logger.error("Erro CRÍTICO no process_kb_media_task %d: %s", log_id, str(e))
-        import traceback
+        tb = traceback.format_exc()
+        logger.error("Erro CRÍTICO no process_kb_media_task %d (tentativa %d): %s", log_id, current_retry + 1, str(e))
+        logger.error(tb)
 
-        logger.error(traceback.format_exc())
-        await _update_log_status(log_id, "ERRO", 0, error_message=str(e))
+        # ── Auto-retry logic (FR-011) ────────────────────────────────────────
+        if current_retry < _MAX_RETRIES - 1:
+            next_retry = current_retry + 1
+            delay = _RETRY_DELAYS[current_retry]  # 30s, 90s, 180s
+            await append_log(
+                log_id,
+                f"❌ Tentativa {current_retry + 1} falhou: {str(e)}",
+                level="ERROR",
+            )
+            await append_log(
+                log_id,
+                f"🔄 Aguardando {delay}s antes da próxima tentativa ({next_retry + 1}/{_MAX_RETRIES})...",
+                level="WARNING",
+            )
+
+            # Persist retry counter and go back to PENDENTE
+            async with async_session() as db:
+                _log_row = await db.get(BackgroundProcessLog, log_id)
+                if _log_row:
+                    _log_row.retry_count = next_retry
+                    _log_row.status = "PENDENTE"
+                    await db.commit()
+
+            await asyncio.sleep(delay)
+
+            # Build retry payload with updated retry counter context
+            retry_payload = {**payload}
+            await process_kb_media_task.kiq(log_id, kb_id, retry_payload)
+        else:
+            # Definitive failure after all retries exhausted
+            await append_error(log_id, f"💀 Falha definitiva após {_MAX_RETRIES} tentativas: {str(e)}", e)
+            await _update_log_status(log_id, "ERRO", 0, error_message=str(e))
     finally:
         await engine.dispose()
         if file_path and os.path.exists(file_path):

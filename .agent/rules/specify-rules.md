@@ -1,6 +1,6 @@
 # configura-agente-ia-aryaraj Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-08-22
+Auto-generated from all feature plans. Last updated: 2026-08-29
 
 ## Active Technologies
 - Python 3.12+ (Backend), TypeScript 5+ (Frontend) + FastAPI, SQLAlchemy (Async), LangGraph, TaskIQ, RabbitMQ, Pydantic v2 (003-performance-tools)
@@ -28,9 +28,9 @@ cd src [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLO
 Python 3.12+ (Async): Follow standard conventions
 
 ## Recent Changes
+- 012-add-router-agent: Added [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
 - 011-improve-video-transcription: Added [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
 - 008-fix-implementation-regressions: Added Python 3.11+, TypeScript/React (Vite) + FastAPI, SQLAlchemy, Alembic, React, TaskIQ, RabbitMQ
-- 006-background-process-monitor: Added Python 3.11+ (Backend), TypeScript (Frontend) + TaskIQ, RabbitMQ, LangGraph, FastAPI UI WebSockets, React, shadcn/ui
 
 
 <!-- MANUAL ADDITIONS START -->

@@ -105,6 +105,14 @@ const ConfigPanel = () => {
     const [openaiConnected, setOpenaiConnected] = useState(true);
     const [geminiConnected, setGeminiConnected] = useState(true);
 
+    // --- Router Agent (Feature 012) ---
+    const [agentType, setAgentType] = useState('standard');
+    const [routerPrompt, setRouterPrompt] = useState('');
+    const [fallbackAgentId, setFallbackAgentId] = useState('');
+    const [destinations, setDestinations] = useState([]);
+    const [availableAgents, setAvailableAgents] = useState([]);
+    // -----------------------------------
+
     useEffect(() => {
         // Safety: If router roles are selected but router gets disabled, reset to 'main'
         if (configRole.startsWith('router') && !routerEnabled) {
@@ -299,6 +307,17 @@ const ConfigPanel = () => {
                     console.error("Error fetching Google status:", err);
                 }
 
+                // Agents list (for router destinations)
+                try {
+                    const agentsRes = await api.get('/agents');
+                    const agentsData = await agentsRes.json();
+                    if (Array.isArray(agentsData)) {
+                        setAvailableAgents(agentsData.filter(a => a.id !== parseInt(id) && a.is_active));
+                    }
+                } catch (err) {
+                    console.error("Error fetching agents:", err);
+                }
+
                 // Agent Config
                 if (!isNew && id) {
                     try {
@@ -366,6 +385,12 @@ const ConfigPanel = () => {
                         if (configData.safety_settings !== undefined) setSafetySettings(configData.safety_settings);
                         if (configData.reasoning_effort !== undefined) setReasoningEffort(configData.reasoning_effort);
 
+                        // Router Fields
+                        setAgentType(configData.agent_type || 'standard');
+                        setRouterPrompt(configData.router_prompt || '');
+                        setFallbackAgentId(configData.fallback_agent_id || '');
+                        setDestinations(configData.destinations || []);
+
                     } catch (err) {
                         console.error("Error loading agent:", err);
                         setStatus('Erro ao carregar agente');
@@ -399,7 +424,11 @@ const ConfigPanel = () => {
         if (!name.trim()) errors.push('nome');
         const needsModel = !routerEnabled;
         const hasMainModel = needsModel ? !!selectedModel : (!!routerSimpleModel && !!routerComplexModel);
-        if (!hasMainModel) errors.push('modelo');
+        if (agentType === 'standard' && !hasMainModel) errors.push('modelo');
+        if (agentType === 'router' && !selectedModel) errors.push('modelo');
+        
+        if (agentType === 'router' && !routerPrompt.trim()) errors.push('router_prompt');
+        
         if (errors.length > 0) {
             setValidationErrors(errors);
             return;
@@ -469,7 +498,15 @@ const ConfigPanel = () => {
                         context_window: parseInt(contextWindow) || 5,
                         reasoning_effort: reasoningEffort || 'medium'
                     }
-                }
+                },
+                agent_type: agentType,
+                router_prompt: routerPrompt || null,
+                fallback_agent_id: fallbackAgentId ? parseInt(fallbackAgentId) : null,
+                destinations: destinations.map(d => ({
+                    destination_agent_id: parseInt(d.destination_agent_id),
+                    routing_instruction: d.routing_instruction,
+                    priority: parseInt(d.priority) || 0
+                }))
             };
 
             setStatus('Enviando dados ao servidor...');
@@ -767,6 +804,53 @@ const ConfigPanel = () => {
                         )}
 
                         <div className="form-section">
+                            <span className="section-label">Tipo de Agente</span>
+                            <div style={{ display: 'flex', gap: '1rem', marginTop: '10px', marginBottom: '10px' }}>
+                                <div 
+                                    onClick={() => {
+                                        setAgentType('standard');
+                                        if (selectedModel === null) setSelectedModel('gpt-4o-mini');
+                                    }}
+                                    style={{ 
+                                        flex: 1, padding: '1rem', borderRadius: '12px', cursor: 'pointer',
+                                        border: agentType === 'standard' ? '2px solid #6366f1' : '2px solid rgba(255,255,255,0.05)',
+                                        background: agentType === 'standard' ? 'rgba(99,102,241,0.05)' : 'rgba(15,23,42,0.4)',
+                                        transition: 'all 0.2s ease'
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                                        <div style={{ fontSize: '1.5rem' }}>🤖</div>
+                                        <div style={{ fontWeight: 600, color: agentType === 'standard' ? '#e2e8f0' : '#94a3b8' }}>Agente Padrão</div>
+                                    </div>
+                                    <div style={{ fontSize: '0.8rem', color: '#64748b', lineHeight: 1.4 }}>
+                                        Atende o cliente diretamente, consulta dados e executa ferramentas.
+                                    </div>
+                                </div>
+
+                                <div 
+                                    onClick={() => {
+                                        setAgentType('router');
+                                        setRouterEnabled(false);
+                                    }}
+                                    style={{ 
+                                        flex: 1, padding: '1rem', borderRadius: '12px', cursor: 'pointer',
+                                        border: agentType === 'router' ? '2px solid #f59e0b' : '2px solid rgba(255,255,255,0.05)',
+                                        background: agentType === 'router' ? 'rgba(245,158,11,0.05)' : 'rgba(15,23,42,0.4)',
+                                        transition: 'all 0.2s ease'
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                                        <div style={{ fontSize: '1.5rem' }}>🔀</div>
+                                        <div style={{ fontWeight: 600, color: agentType === 'router' ? '#e2e8f0' : '#94a3b8' }}>Agente Roteador</div>
+                                    </div>
+                                    <div style={{ fontSize: '0.8rem', color: '#64748b', lineHeight: 1.4 }}>
+                                        Analisa as intenções e delega as conversas para outros agentes.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="form-section">
                             <span className="section-label">Identificação</span>
                             <div className="form-group">
                                 <label>Nome do Agente</label>
@@ -793,23 +877,30 @@ const ConfigPanel = () => {
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
                                 <div>
                                     <span className="section-label" style={{ margin: 0 }}>
-                                        {routerEnabled ? '🚦 Roteamento de Modelos (Cost Router)' : 'Inteligência & Modelo'}
+                                        {agentType === 'router' ? '🧠 Inteligência do Classificador' : (routerEnabled ? '🚦 Roteamento de Modelos (Cost Router)' : '🧠 Inteligência & Modelo')}
                                     </span>
-                                    {routerEnabled && (
+                                    {routerEnabled && agentType !== 'router' && (
                                         <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '4px' }}>
                                             Economize até 90% desviando perguntas simples para modelos mais baratos.
                                         </p>
                                     )}
+                                    {agentType === 'router' && (
+                                        <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '4px' }}>
+                                            Modelo que será usado para analisar a intenção e escolher o destino (geralmente rápido, como gpt-4o-mini).
+                                        </p>
+                                    )}
                                 </div>
-                                <div className={`status-badge ${routerEnabled ? 'active' : ''}`}
-                                    onClick={() => setRouterEnabled(!routerEnabled)}
-                                    style={{ cursor: 'pointer', padding: '8px 16px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600 }}>
-                                    {routerEnabled ? 'ATIVADO' : 'DESATIVADO'}
-                                </div>
+                                {agentType !== 'router' && (
+                                    <div className={`status-badge ${routerEnabled ? 'active' : ''}`}
+                                        onClick={() => setRouterEnabled(!routerEnabled)}
+                                        style={{ cursor: 'pointer', padding: '8px 16px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600 }}>
+                                        {routerEnabled ? 'ATIVADO' : 'DESATIVADO'}
+                                    </div>
+                                )}
                             </div>
 
                             {/* Roteamento DESATIVADO: seletor simples */}
-                            {!routerEnabled && (
+                            {(!routerEnabled || agentType === 'router') && (
                                 <div className="fade-in">
                                     <div className="form-group">
                                         <label>Modelo Principal</label>
@@ -884,7 +975,7 @@ const ConfigPanel = () => {
                             )}
 
                             {/* Roteamento ATIVADO: dois modelos */}
-                            {routerEnabled && (
+                            {routerEnabled && agentType !== 'router' && (
                                 <div className="fade-in" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', background: 'rgba(16, 185, 129, 0.05)', padding: '1.5rem', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
                                     {/* Simple Model Group */}
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -950,6 +1041,119 @@ const ConfigPanel = () => {
                                 </div>
                             )}
                         </div>
+
+                        {/* ROUTER AGENT CONFIG */}
+                        {agentType === 'router' && (
+                            <div className="form-section fade-in" style={{ backgroundColor: 'rgba(245, 158, 11, 0.05)', border: '1px solid rgba(245, 158, 11, 0.2)', padding: '1.5rem', borderRadius: '12px', marginTop: '1.5rem' }}>
+                                <span className="section-label" style={{ color: '#f59e0b', fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>🔀 Destinos de Roteamento</span>
+                                <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '8px', marginBottom: '1.5rem' }}>
+                                    Adicione agentes de destino e as instruções de quando eles devem ser chamados. O roteador usa essas regras para classificar a intenção do usuário.
+                                </p>
+
+                                <div className="form-group">
+                                    <label>Prompt Auxiliar de Classificação <span style={{ fontSize: '0.7em', color: '#64748b' }}>(Opcional)</span></label>
+                                    <textarea
+                                        placeholder="Regras extras de roteamento para auxiliar o LLM. Ex: Sempre mande dúvidas técnicas para o suporte, a menos que o cliente esteja agressivo."
+                                        value={routerPrompt}
+                                        onChange={(e) => setRouterPrompt(e.target.value)}
+                                        style={{ minHeight: '80px', borderColor: 'rgba(245, 158, 11, 0.2)' }}
+                                    />
+                                </div>
+
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
+                                    {destinations.map((dest, idx) => (
+                                        <div key={idx} style={{ padding: '1rem', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px', position: 'relative' }}>
+                                            <button
+                                                onClick={() => {
+                                                    const newDests = [...destinations];
+                                                    newDests.splice(idx, 1);
+                                                    setDestinations(newDests);
+                                                }}
+                                                style={{ position: 'absolute', top: '10px', right: '10px', background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer', padding: '4px' }}
+                                                title="Remover Destino"
+                                            >✕</button>
+                                            
+                                            <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr 100px', gap: '1rem', alignItems: 'end' }}>
+                                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                                    <label style={{ fontSize: '0.75rem', color: '#cbd5e1' }}>Agente Destino</label>
+                                                    <select
+                                                        value={dest.destination_agent_id || ''}
+                                                        onChange={(e) => {
+                                                            const newDests = [...destinations];
+                                                            newDests[idx].destination_agent_id = e.target.value;
+                                                            setDestinations(newDests);
+                                                        }}
+                                                        style={{ padding: '6px', fontSize: '0.8rem' }}
+                                                    >
+                                                        <option value="" disabled>Selecione...</option>
+                                                        {availableAgents.map(a => (
+                                                            <option key={a.id} value={a.id}>{a.name}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                                    <label style={{ fontSize: '0.75rem', color: '#cbd5e1' }}>Instrução (Quando rotear para ele?)</label>
+                                                    <input
+                                                        type="text"
+                                                        value={dest.routing_instruction || ''}
+                                                        onChange={(e) => {
+                                                            const newDests = [...destinations];
+                                                            newDests[idx].routing_instruction = e.target.value;
+                                                            setDestinations(newDests);
+                                                        }}
+                                                        placeholder="Ex: Quando o cliente perguntar sobre orçamentos."
+                                                        style={{ padding: '6px', fontSize: '0.8rem' }}
+                                                    />
+                                                </div>
+                                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                                    <label style={{ fontSize: '0.75rem', color: '#cbd5e1' }}>Prioridade</label>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        value={dest.priority || 0}
+                                                        onChange={(e) => {
+                                                            const newDests = [...destinations];
+                                                            newDests[idx].priority = e.target.value;
+                                                            setDestinations(newDests);
+                                                        }}
+                                                        style={{ padding: '6px', fontSize: '0.8rem' }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <button
+                                    onClick={() => setDestinations([...destinations, { destination_agent_id: '', routing_instruction: '', priority: 0 }])}
+                                    style={{
+                                        background: 'rgba(245, 158, 11, 0.1)', border: '1px dashed rgba(245, 158, 11, 0.4)',
+                                        color: '#fcd34d', padding: '0.6rem 1rem', borderRadius: '8px', cursor: 'pointer',
+                                        fontSize: '0.85rem', fontWeight: 600, width: '100%', transition: 'all 0.2s ease'
+                                    }}
+                                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(245, 158, 11, 0.2)'}
+                                    onMouseLeave={e => e.currentTarget.style.background = 'rgba(245, 158, 11, 0.1)'}
+                                >
+                                    + Adicionar Agente de Destino
+                                </button>
+                                
+                                <div className="form-group" style={{ marginTop: '1.5rem', marginBottom: 0 }}>
+                                    <label style={{ color: '#cbd5e1' }}>Destino de Fallback (Padrão)</label>
+                                    <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px', marginBottom: '8px' }}>
+                                        Agente para onde enviar se a intenção não for identificada ou as opções acima falharem.
+                                    </p>
+                                    <select
+                                        value={fallbackAgentId || ''}
+                                        onChange={(e) => setFallbackAgentId(e.target.value || null)}
+                                        style={{ borderColor: 'rgba(245, 158, 11, 0.3)' }}
+                                    >
+                                        <option value="">Nenhum (Devolve erro se não classificar)</option>
+                                        {availableAgents.map(a => (
+                                            <option key={a.id} value={a.id}>{a.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+                        )}
 
                         {/* ADVANCED MODEL CONFIG */}
                         <div className="form-section" style={{ backgroundColor: 'rgba(99, 102, 241, 0.05)', border: '1px solid rgba(99, 102, 241, 0.1)', padding: '1.5rem', borderRadius: '12px', marginTop: '1.5rem' }}>

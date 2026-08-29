@@ -739,6 +739,16 @@ const ChatPlayground = () => {
             steps.push({ icon: '📦', title: 'Variáveis de Contexto recebidas', desc, isContextVars: true, vars });
         }
 
+        // Router Agent (Feature 012)
+        if (debug.routing) {
+            steps.push({
+                icon: '🔀',
+                title: 'Roteador Delegou Conversa',
+                desc: `Intenção identificada: ${debug.routing.intent}\nJustificativa: ${debug.routing.justification}\nDestino: ${debug.routing.destination_agent_id ? 'Agente #' + debug.routing.destination_agent_id : 'Fallback Padrão'}`,
+                isRouter: true
+            });
+        }
+
         if (debug.rag_context) {
             steps.push({ icon: '📚', title: 'RAG Recuperou Contexto', desc: 'Base de Conhecimento consultada' });
         } else if (debug.rag_skipped) {
@@ -807,7 +817,7 @@ const ChatPlayground = () => {
                                     ))}
                                 </div>
                             ) : (
-                                step.desc && <div className="step-desc" style={{ color: step.isViolation ? '#fda4af' : '' }}>
+                                step.desc && <div className="step-desc" style={{ color: step.isViolation ? '#fda4af' : (step.isRouter ? '#fcd34d' : ''), whiteSpace: 'pre-wrap' }}>
                                     {step.desc}
                                 </div>
                             )}

@@ -7,11 +7,11 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text, func
 from typing import Any, List, Dict, Optional
-from config_store import AgentConfig, KnowledgeBase, KnowledgeItem, MODEL_INFO, USD_TO_BRL
+from config_store import AgentConfig, KnowledgeBase, KnowledgeItem, MODEL_INFO, USD_TO_BRL, RouterDestinationSchema
 from agent import process_message, summarize_history, extract_questions_from_history, get_openai_client, INTERNAL_CTX_KEYS
 from rag_service import calculate_coverage, get_embedding, get_batch_embeddings
 from database import init_db, get_db, async_session
-from models import InteractionLog, AgentConfigModel, ToolModel, KnowledgeBaseModel, KnowledgeItemModel, SessionSummary, PromptDraftModel, FeedbackLog, GlobalContextVariableModel, UserModel, UnansweredQuestionModel, SupportRequestModel
+from models import InteractionLog, AgentConfigModel, ToolModel, KnowledgeBaseModel, KnowledgeItemModel, SessionSummary, PromptDraftModel, FeedbackLog, GlobalContextVariableModel, UserModel, UnansweredQuestionModel, SupportRequestModel, RouterAgentDestinationModel
 from sqlalchemy.orm import selectinload
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -2496,56 +2496,111 @@ async def check_coverage(kb_id: int, payload: CoverageCheckRequest, db: AsyncSes
     results = await calculate_coverage(db, payload.questions, kb_id)
     return {"results": results}
 
+# =============================================================================
+# AGENT HELPERS (Feature 012: Router Agent support)
+# =============================================================================
+
+def _build_destinations_schema(db_agent) -> list:
+    """Convert ORM destinations relationship to list of RouterDestinationSchema."""
+    result = []
+    for dest in getattr(db_agent, "destinations", []) or []:
+        dest_name = None
+        if hasattr(dest, "destination_agent") and dest.destination_agent:
+            dest_name = dest.destination_agent.name
+        result.append(RouterDestinationSchema(
+            id=dest.id,
+            destination_agent_id=dest.destination_agent_id,
+            destination_agent_name=dest_name,
+            routing_instruction=dest.routing_instruction,
+            priority=dest.priority,
+        ))
+    return result
+
+
+def _agent_to_schema(db_config, kb_ids: list = None, tool_ids: list = None) -> AgentConfig:
+    """Convert an AgentConfigModel ORM instance to an AgentConfig Pydantic schema.
+    Accepts pre-computed kb_ids/tool_ids to avoid re-loading relationships.
+    """
+    if kb_ids is None:
+        kbs = getattr(db_config, "knowledge_bases", []) or []
+        kb_ids = [kb.id for kb in kbs]
+    if tool_ids is None:
+        tools = getattr(db_config, "tools", []) or []
+        tool_ids = [t.id for t in tools]
+
+    destinations = _build_destinations_schema(db_config)
+
+    return AgentConfig(
+        id=db_config.id,
+        name=db_config.name,
+        description=db_config.description,
+        model=db_config.model,
+        fallback_model=db_config.fallback_model,
+        temperature=db_config.temperature,
+        top_p=db_config.top_p,
+        date_awareness=db_config.date_awareness,
+        system_prompt=db_config.system_prompt,
+        context_window=db_config.context_window,
+        knowledge_base=json.loads(db_config.knowledge_base) if db_config.knowledge_base else [],
+        knowledge_base_id=kb_ids[0] if kb_ids else None,
+        knowledge_base_ids=kb_ids,
+        rag_retrieval_count=db_config.rag_retrieval_count,
+        rag_translation_enabled=db_config.rag_translation_enabled,
+        rag_multi_query_enabled=db_config.rag_multi_query_enabled,
+        rag_rerank_enabled=db_config.rag_rerank_enabled,
+        rag_agentic_eval_enabled=db_config.rag_agentic_eval_enabled,
+        rag_parent_expansion_enabled=db_config.rag_parent_expansion_enabled,
+        tool_ids=tool_ids,
+        is_active=db_config.is_active,
+        simulated_time=db_config.simulated_time,
+        security_competitor_blacklist=db_config.security_competitor_blacklist,
+        security_forbidden_topics=db_config.security_forbidden_topics,
+        security_discount_policy=db_config.security_discount_policy,
+        security_language_complexity=db_config.security_language_complexity,
+        security_pii_filter=db_config.security_pii_filter,
+        security_bot_protection=db_config.security_bot_protection,
+        security_max_messages_per_session=db_config.security_max_messages_per_session,
+        security_semantic_threshold=db_config.security_semantic_threshold,
+        security_loop_count=db_config.security_loop_count,
+        security_validator_ia=db_config.security_validator_ia,
+        inbox_capture_enabled=db_config.inbox_capture_enabled,
+        ui_primary_color=db_config.ui_primary_color,
+        ui_header_color=db_config.ui_header_color,
+        ui_chat_title=db_config.ui_chat_title,
+        ui_welcome_message=db_config.ui_welcome_message,
+        router_enabled=db_config.router_enabled,
+        router_simple_model=db_config.router_simple_model,
+        router_complex_model=db_config.router_complex_model,
+        handoff_enabled=db_config.handoff_enabled,
+        response_translation_enabled=db_config.response_translation_enabled,
+        response_translation_fallback_lang=db_config.response_translation_fallback_lang or "portuguese",
+        top_k=db_config.top_k,
+        presence_penalty=db_config.presence_penalty,
+        frequency_penalty=db_config.frequency_penalty,
+        safety_settings=db_config.safety_settings,
+        model_settings=json.loads(db_config.model_settings) if db_config.model_settings else {},
+        # --- Router Agent Fields (Feature 012) ---
+        agent_type=getattr(db_config, "agent_type", "standard") or "standard",
+        router_prompt=getattr(db_config, "router_prompt", None),
+        fallback_agent_id=getattr(db_config, "fallback_agent_id", None),
+        destinations=destinations,
+    )
+
+
 # --- AGENT MANAGEMENT UPDATED ---
 @app.get("/agents", response_model=List[AgentConfig], dependencies=[Depends(verify_api_key), Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value, UserRole.USUARIO_ADMIN.value, UserRole.USUARIO.value]))])
 async def list_agents(db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(AgentConfigModel)
-        .options(selectinload(AgentConfigModel.tools))
+        .options(
+            selectinload(AgentConfigModel.tools),
+            selectinload(AgentConfigModel.knowledge_bases),
+            selectinload(AgentConfigModel.destinations).selectinload(RouterAgentDestinationModel.destination_agent),
+        )
         .order_by(AgentConfigModel.id)
     )
     db_agents = result.scalars().all()
-    return [
-        AgentConfig(
-            id=a.id,
-            name=a.name,
-            description=a.description,
-            model=a.model,
-            fallback_model=a.fallback_model,
-            temperature=a.temperature,
-            top_p=a.top_p,
-            date_awareness=a.date_awareness,
-            system_prompt=a.system_prompt,
-            context_window=a.context_window,
-            knowledge_base=json.loads(a.knowledge_base) if a.knowledge_base else [],
-            knowledge_base_id=a.knowledge_base_id,
-            tool_ids=[t.id for t in a.tools],
-            is_active=a.is_active,
-            simulated_time=a.simulated_time,
-            security_competitor_blacklist=a.security_competitor_blacklist,
-            security_forbidden_topics=a.security_forbidden_topics,
-            security_discount_policy=a.security_discount_policy,
-            security_language_complexity=a.security_language_complexity,
-            security_pii_filter=a.security_pii_filter,
-            security_bot_protection=a.security_bot_protection,
-            security_max_messages_per_session=a.security_max_messages_per_session,
-            security_semantic_threshold=a.security_semantic_threshold,
-            security_loop_count=a.security_loop_count,
-            security_validator_ia=a.security_validator_ia,
-            inbox_capture_enabled=a.inbox_capture_enabled,
-            handoff_enabled=a.handoff_enabled,
-            response_translation_enabled=a.response_translation_enabled,
-            response_translation_fallback_lang=a.response_translation_fallback_lang or "portuguese",
-            router_enabled=a.router_enabled,
-            router_simple_model=a.router_simple_model,
-            router_complex_model=a.router_complex_model,
-            top_k=a.top_k,
-            presence_penalty=a.presence_penalty,
-            frequency_penalty=a.frequency_penalty,
-            safety_settings=a.safety_settings,
-            model_settings=json.loads(a.model_settings) if a.model_settings else {}
-        ) for a in db_agents
-    ]
+    return [_agent_to_schema(a) for a in db_agents]
 
 @app.post("/agents", response_model=AgentConfig, dependencies=[Depends(verify_api_key), Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value]))])
 async def create_agent(config: AgentConfig, db: AsyncSession = Depends(get_db)):
@@ -2611,71 +2666,36 @@ async def create_agent(config: AgentConfig, db: AsyncSession = Depends(get_db)):
         kb = result_kb.scalars().first()
         if kb: db_config.knowledge_bases = [kb]
 
+    # Handle Router Agent Destinations (Feature 012)
+    if config.agent_type == "router" and config.destinations:
+        for dest in config.destinations:
+            if dest.destination_agent_id == db_config.id:
+                raise HTTPException(status_code=400, detail="Um Agente Roteador n\u00e3o pode ter a si mesmo como agente de destino ou fallback.")
+        db_config.destinations = [
+            RouterAgentDestinationModel(
+                destination_agent_id=d.destination_agent_id,
+                routing_instruction=d.routing_instruction,
+                priority=d.priority,
+            )
+            for d in config.destinations
+        ]
+
     db.add(db_config)
     await db.commit()
     await db.refresh(db_config)
     
-    # Reload with relationships
+    # Reload with all relationships
     result = await db.execute(
         select(AgentConfigModel)
         .where(AgentConfigModel.id == db_config.id)
         .options(
             selectinload(AgentConfigModel.tools),
-            selectinload(AgentConfigModel.knowledge_bases)
+            selectinload(AgentConfigModel.knowledge_bases),
+            selectinload(AgentConfigModel.destinations).selectinload(RouterAgentDestinationModel.destination_agent),
         )
     )
     db_config = result.scalars().first()
-    
-    return AgentConfig(
-        id=db_config.id,
-        name=db_config.name,
-        description=db_config.description,
-        model=db_config.model,
-        fallback_model=db_config.fallback_model,
-        temperature=db_config.temperature,
-        top_p=db_config.top_p,
-        date_awareness=db_config.date_awareness,
-        system_prompt=db_config.system_prompt,
-        context_window=db_config.context_window,
-        knowledge_base=json.loads(db_config.knowledge_base) if db_config.knowledge_base else [],
-        knowledge_base_id=db_config.knowledge_bases[0].id if db_config.knowledge_bases else None, # Legacy compat
-        knowledge_base_ids=[kb.id for kb in db_config.knowledge_bases],
-        rag_retrieval_count=db_config.rag_retrieval_count,
-        rag_translation_enabled=db_config.rag_translation_enabled,
-        rag_multi_query_enabled=db_config.rag_multi_query_enabled,
-        rag_rerank_enabled=db_config.rag_rerank_enabled,
-        rag_agentic_eval_enabled=db_config.rag_agentic_eval_enabled,
-        rag_parent_expansion_enabled=db_config.rag_parent_expansion_enabled,
-        tool_ids=[t.id for t in db_config.tools],
-        is_active=db_config.is_active,
-        simulated_time=db_config.simulated_time,
-        security_competitor_blacklist=db_config.security_competitor_blacklist,
-        security_forbidden_topics=db_config.security_forbidden_topics,
-        security_discount_policy=db_config.security_discount_policy,
-        security_language_complexity=db_config.security_language_complexity,
-        security_pii_filter=db_config.security_pii_filter,
-        security_bot_protection=db_config.security_bot_protection,
-        security_max_messages_per_session=db_config.security_max_messages_per_session,
-        security_semantic_threshold=db_config.security_semantic_threshold,
-        security_loop_count=db_config.security_loop_count,
-        security_validator_ia=db_config.security_validator_ia,
-        inbox_capture_enabled=db_config.inbox_capture_enabled,
-        ui_primary_color=db_config.ui_primary_color,
-        ui_header_color=db_config.ui_header_color,
-        ui_chat_title=db_config.ui_chat_title,
-        ui_welcome_message=db_config.ui_welcome_message,
-        router_enabled=db_config.router_enabled,
-        router_simple_model=db_config.router_simple_model,
-        router_complex_model=db_config.router_complex_model,
-        handoff_enabled=db_config.handoff_enabled,
-        response_translation_enabled=db_config.response_translation_enabled,
-        response_translation_fallback_lang=db_config.response_translation_fallback_lang or "portuguese",
-        top_k=db_config.top_k,
-        presence_penalty=db_config.presence_penalty,
-        frequency_penalty=db_config.frequency_penalty,
-        safety_settings=db_config.safety_settings,
-        model_settings=json.loads(db_config.model_settings) if db_config.model_settings else {}
-    )
+    return _agent_to_schema(db_config)
 
 @app.get("/agents/models", response_model=List[str], dependencies=[Depends(verify_api_key)])
 async def list_available_models():
@@ -2688,63 +2708,15 @@ async def get_agent(agent_id: int, db: AsyncSession = Depends(get_db)):
         .where(AgentConfigModel.id == agent_id)
         .options(
             selectinload(AgentConfigModel.tools),
-            selectinload(AgentConfigModel.knowledge_bases)
+            selectinload(AgentConfigModel.knowledge_bases),
+            selectinload(AgentConfigModel.destinations).selectinload(RouterAgentDestinationModel.destination_agent),
         )
     )
     db_config = result.scalars().first()
     if not db_config:
         raise HTTPException(status_code=404, detail="Agent not found")
         
-    return AgentConfig(
-        id=db_config.id,
-        name=db_config.name,
-        description=db_config.description,
-        model=db_config.model,
-        fallback_model=db_config.fallback_model,
-        temperature=db_config.temperature,
-        top_p=db_config.top_p,
-        date_awareness=db_config.date_awareness,
-        system_prompt=db_config.system_prompt,
-        context_window=db_config.context_window,
-        knowledge_base=json.loads(db_config.knowledge_base) if db_config.knowledge_base else [],
-        knowledge_base_id=db_config.knowledge_bases[0].id if db_config.knowledge_bases else None,
-        knowledge_base_ids=[kb.id for kb in db_config.knowledge_bases],
-        rag_retrieval_count=db_config.rag_retrieval_count,
-        rag_translation_enabled=db_config.rag_translation_enabled,
-        rag_multi_query_enabled=db_config.rag_multi_query_enabled,
-        rag_rerank_enabled=db_config.rag_rerank_enabled,
-        rag_agentic_eval_enabled=db_config.rag_agentic_eval_enabled,
-        rag_parent_expansion_enabled=db_config.rag_parent_expansion_enabled,
-        tool_ids=[t.id for t in db_config.tools],
-        is_active=db_config.is_active,
-        simulated_time=db_config.simulated_time,
-        security_competitor_blacklist=db_config.security_competitor_blacklist,
-        security_forbidden_topics=db_config.security_forbidden_topics,
-        security_discount_policy=db_config.security_discount_policy,
-        security_language_complexity=db_config.security_language_complexity,
-        security_pii_filter=db_config.security_pii_filter,
-        security_bot_protection=db_config.security_bot_protection,
-        security_max_messages_per_session=db_config.security_max_messages_per_session,
-        security_semantic_threshold=db_config.security_semantic_threshold,
-        security_loop_count=db_config.security_loop_count,
-        security_validator_ia=db_config.security_validator_ia,
-        inbox_capture_enabled=db_config.inbox_capture_enabled,
-        ui_primary_color=db_config.ui_primary_color,
-        ui_header_color=db_config.ui_header_color,
-        ui_chat_title=db_config.ui_chat_title,
-        ui_welcome_message=db_config.ui_welcome_message,
-        router_enabled=db_config.router_enabled,
-        router_simple_model=db_config.router_simple_model,
-        router_complex_model=db_config.router_complex_model,
-        handoff_enabled=db_config.handoff_enabled,
-        response_translation_enabled=db_config.response_translation_enabled,
-        response_translation_fallback_lang=db_config.response_translation_fallback_lang or "portuguese",
-        top_k=db_config.top_k,
-        presence_penalty=db_config.presence_penalty,
-        frequency_penalty=db_config.frequency_penalty,
-        safety_settings=db_config.safety_settings,
-        model_settings=json.loads(db_config.model_settings) if db_config.model_settings else {}
-    )
+    return _agent_to_schema(db_config)
 
 @app.put("/agents/{agent_id}", response_model=AgentConfig, dependencies=[Depends(verify_api_key), Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value]))])
 async def update_agent(agent_id: int, config: AgentConfig, db: AsyncSession = Depends(get_db)):
@@ -2841,55 +2813,50 @@ async def update_agent(agent_id: int, config: AgentConfig, db: AsyncSession = De
         db_config.knowledge_bases = kbs.scalars().all()
     else:
         db_config.knowledge_bases = []
-    
+
+    # --- Router Agent Fields (Feature 012) ---
+    db_config.agent_type = config.agent_type or "standard"
+    db_config.router_prompt = config.router_prompt
+    db_config.fallback_agent_id = config.fallback_agent_id
+
+    # Validate fallback self-reference
+    if config.fallback_agent_id and config.fallback_agent_id == agent_id:
+        raise HTTPException(status_code=400, detail="Um Agente Roteador n\u00e3o pode ter a si mesmo como fallback.")
+
+    # Sync destination agents (replace all existing)
+    if config.agent_type == "router":
+        # Validate: if activating, must have destinations
+        if config.is_active and not config.destinations:
+            raise HTTPException(status_code=400, detail="Um Agente Roteador deve possuir pelo menos um agente de destino configurado antes de ser ativado.")
+        # Validate no self-references
+        for dest in config.destinations:
+            if dest.destination_agent_id == agent_id:
+                raise HTTPException(status_code=400, detail="Um Agente Roteador n\u00e3o pode ter a si mesmo como agente de destino ou fallback.")
+        # Replace destinations (cascade delete-orphan handles removal)
+        db_config.destinations = [
+            RouterAgentDestinationModel(
+                destination_agent_id=d.destination_agent_id,
+                routing_instruction=d.routing_instruction,
+                priority=d.priority,
+            )
+            for d in config.destinations
+        ]
+    # -------------------------------------------
+
     await db.commit()
-    await db.refresh(db_config)
-    
-    return AgentConfig(
-        id=db_config.id,
-        name=db_config.name,
-        description=db_config.description,
-        model=db_config.model,
-        fallback_model=db_config.fallback_model,
-        temperature=db_config.temperature,
-        top_p=db_config.top_p,
-        date_awareness=db_config.date_awareness,
-        system_prompt=db_config.system_prompt,
-        context_window=db_config.context_window,
-        knowledge_base=json.loads(db_config.knowledge_base) if db_config.knowledge_base else [],
-        knowledge_base_id=db_config.knowledge_bases[0].id if db_config.knowledge_bases else None,
-        knowledge_base_ids=[kb.id for kb in db_config.knowledge_bases],
-        rag_retrieval_count=db_config.rag_retrieval_count,
-        tool_ids=[t.id for t in db_config.tools],
-        is_active=db_config.is_active,
-        simulated_time=db_config.simulated_time,
-        security_competitor_blacklist=db_config.security_competitor_blacklist,
-        security_forbidden_topics=db_config.security_forbidden_topics,
-        security_discount_policy=db_config.security_discount_policy,
-        security_language_complexity=db_config.security_language_complexity,
-        security_pii_filter=db_config.security_pii_filter,
-        security_bot_protection=db_config.security_bot_protection,
-        security_max_messages_per_session=db_config.security_max_messages_per_session,
-        security_semantic_threshold=db_config.security_semantic_threshold,
-        security_loop_count=db_config.security_loop_count,
-        security_validator_ia=db_config.security_validator_ia,
-        inbox_capture_enabled=db_config.inbox_capture_enabled,
-        ui_primary_color=db_config.ui_primary_color,
-        ui_header_color=db_config.ui_header_color,
-        ui_chat_title=db_config.ui_chat_title,
-        ui_welcome_message=db_config.ui_welcome_message,
-        router_enabled=db_config.router_enabled,
-        router_simple_model=db_config.router_simple_model,
-        router_complex_model=db_config.router_complex_model,
-        handoff_enabled=db_config.handoff_enabled,
-        response_translation_enabled=db_config.response_translation_enabled,
-        response_translation_fallback_lang=db_config.response_translation_fallback_lang or "portuguese",
-        top_k=db_config.top_k,
-        presence_penalty=db_config.presence_penalty,
-        frequency_penalty=db_config.frequency_penalty,
-        safety_settings=db_config.safety_settings,
-        model_settings=json.loads(db_config.model_settings) if db_config.model_settings else {}
+
+    # Reload with all relationships
+    result2 = await db.execute(
+        select(AgentConfigModel)
+        .where(AgentConfigModel.id == agent_id)
+        .options(
+            selectinload(AgentConfigModel.tools),
+            selectinload(AgentConfigModel.knowledge_bases),
+            selectinload(AgentConfigModel.destinations).selectinload(RouterAgentDestinationModel.destination_agent),
+        )
     )
+    db_config = result2.scalars().first()
+    return _agent_to_schema(db_config)
 
 @app.get("/agents/{agent_id}/drafts", response_model=List[PromptDraft], dependencies=[Depends(verify_api_key)])
 async def list_agent_drafts(agent_id: int, db: AsyncSession = Depends(get_db)):
@@ -2898,61 +2865,44 @@ async def list_agent_drafts(agent_id: int, db: AsyncSession = Depends(get_db)):
 
 @app.post("/agents/{agent_id}/toggle", response_model=AgentConfig, dependencies=[Depends(verify_api_key), Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value, UserRole.USUARIO_ADMIN.value]))])
 async def toggle_agent_status(agent_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(AgentConfigModel).where(AgentConfigModel.id == agent_id).options(selectinload(AgentConfigModel.tools)))
+    result = await db.execute(
+        select(AgentConfigModel)
+        .where(AgentConfigModel.id == agent_id)
+        .options(
+            selectinload(AgentConfigModel.tools),
+            selectinload(AgentConfigModel.knowledge_bases),
+            selectinload(AgentConfigModel.destinations),
+        )
+    )
     db_config = result.scalars().first()
     if not db_config:
         raise HTTPException(status_code=404, detail="Agent not found")
-    
-    db_config.is_active = not db_config.is_active
+
+    # Router Agent validation: cannot activate without destinations
+    will_be_active = not db_config.is_active
+    if will_be_active and getattr(db_config, "agent_type", "standard") == "router":
+        if not db_config.destinations:
+            raise HTTPException(
+                status_code=400,
+                detail="Um Agente Roteador deve possuir pelo menos um agente de destino configurado antes de ser ativado."
+            )
+
+    db_config.is_active = will_be_active
     await db.commit()
     await db.refresh(db_config)
-    
-    return AgentConfig(
-        id=db_config.id,
-        name=db_config.name,
-        description=db_config.description,
-        model=db_config.model,
-        fallback_model=db_config.fallback_model,
-        temperature=db_config.temperature,
-        top_p=db_config.top_p,
-        is_active=db_config.is_active,
-        date_awareness=db_config.date_awareness,
-        system_prompt=db_config.system_prompt,
-        context_window=db_config.context_window,
-        knowledge_base=json.loads(db_config.knowledge_base) if db_config.knowledge_base else [],
-        knowledge_base_id=db_config.knowledge_base_id,
-        tool_ids=[t.id for t in db_config.tools],
-        simulated_time=db_config.simulated_time,
-        security_competitor_blacklist=db_config.security_competitor_blacklist,
-        security_forbidden_topics=db_config.security_forbidden_topics,
-        security_discount_policy=db_config.security_discount_policy,
-        security_language_complexity=db_config.security_language_complexity,
-        security_pii_filter=db_config.security_pii_filter,
-        security_bot_protection=db_config.security_bot_protection,
-        security_max_messages_per_session=db_config.security_max_messages_per_session,
-        security_semantic_threshold=db_config.security_semantic_threshold,
-        security_loop_count=db_config.security_loop_count,
-        security_validator_ia=db_config.security_validator_ia,
-        ui_primary_color=db_config.ui_primary_color,
-        ui_header_color=db_config.ui_header_color,
-        ui_chat_title=db_config.ui_chat_title,
-        ui_welcome_message=db_config.ui_welcome_message,
-        router_enabled=db_config.router_enabled,
-        router_simple_model=db_config.router_simple_model,
-        router_complex_model=db_config.router_complex_model,
-        handoff_enabled=db_config.handoff_enabled,
-        response_translation_enabled=db_config.response_translation_enabled,
-        response_translation_fallback_lang=db_config.response_translation_fallback_lang or "portuguese",
-        top_k=db_config.top_k,
-        presence_penalty=db_config.presence_penalty,
-        frequency_penalty=db_config.frequency_penalty,
-        safety_settings=db_config.safety_settings,
-        model_settings=json.loads(db_config.model_settings) if db_config.model_settings else {}
-    )
+    return _agent_to_schema(db_config)
 
 @app.post("/agents/{agent_id}/duplicate", response_model=AgentConfig, dependencies=[Depends(verify_api_key), Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value]))])
 async def duplicate_agent(agent_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(AgentConfigModel).where(AgentConfigModel.id == agent_id).options(selectinload(AgentConfigModel.tools)))
+    result = await db.execute(
+        select(AgentConfigModel)
+        .where(AgentConfigModel.id == agent_id)
+        .options(
+            selectinload(AgentConfigModel.tools),
+            selectinload(AgentConfigModel.knowledge_bases),
+            selectinload(AgentConfigModel.destinations),
+        )
+    )
     original = result.scalars().first()
     if not original:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -2997,57 +2947,38 @@ async def duplicate_agent(agent_id: int, db: AsyncSession = Depends(get_db)):
         ui_header_color=original.ui_header_color,
         ui_chat_title=original.ui_chat_title,
         ui_welcome_message=original.ui_welcome_message,
+        agent_type=getattr(original, "agent_type", "standard"),
+        router_prompt=original.router_prompt,
+        fallback_agent_id=original.fallback_agent_id,
     )
+    
+    # Copy destination agents if router
+    if getattr(original, "agent_type", "standard") == "router" and getattr(original, "destinations", None):
+        new_agent.destinations = [
+            RouterAgentDestinationModel(
+                destination_agent_id=d.destination_agent_id,
+                routing_instruction=d.routing_instruction,
+                priority=d.priority,
+            ) for d in original.destinations
+        ]
     
     db.add(new_agent)
     await db.commit()
     await db.refresh(new_agent)
     
-    # Reload to ensure tools are populated
-    result_new = await db.execute(select(AgentConfigModel).where(AgentConfigModel.id == new_agent.id).options(selectinload(AgentConfigModel.tools)))
+    # Reload to ensure relationships are populated
+    result_new = await db.execute(
+        select(AgentConfigModel)
+        .where(AgentConfigModel.id == new_agent.id)
+        .options(
+            selectinload(AgentConfigModel.tools),
+            selectinload(AgentConfigModel.knowledge_bases),
+            selectinload(AgentConfigModel.destinations).selectinload(RouterAgentDestinationModel.destination_agent)
+        )
+    )
     new_agent = result_new.scalars().first()
 
-    return AgentConfig(
-        id=new_agent.id,
-        name=new_agent.name,
-        description=new_agent.description,
-        model=new_agent.model,
-        fallback_model=new_agent.fallback_model,
-        temperature=new_agent.temperature,
-        top_p=new_agent.top_p,
-        is_active=new_agent.is_active,
-        date_awareness=new_agent.date_awareness,
-        system_prompt=new_agent.system_prompt,
-        context_window=new_agent.context_window,
-        knowledge_base=json.loads(new_agent.knowledge_base) if new_agent.knowledge_base else [],
-        knowledge_base_id=new_agent.knowledge_base_id,
-        tool_ids=[t.id for t in new_agent.tools],
-        simulated_time=new_agent.simulated_time,
-        security_competitor_blacklist=new_agent.security_competitor_blacklist,
-        security_forbidden_topics=new_agent.security_forbidden_topics,
-        security_discount_policy=new_agent.security_discount_policy,
-        security_language_complexity=new_agent.security_language_complexity,
-        security_pii_filter=new_agent.security_pii_filter,
-        security_bot_protection=new_agent.security_bot_protection,
-        security_max_messages_per_session=new_agent.security_max_messages_per_session,
-        security_semantic_threshold=new_agent.security_semantic_threshold,
-        security_loop_count=new_agent.security_loop_count,
-        ui_primary_color=new_agent.ui_primary_color,
-        ui_header_color=new_agent.ui_header_color,
-        ui_chat_title=new_agent.ui_chat_title,
-        ui_welcome_message=new_agent.ui_welcome_message,
-        router_enabled=new_agent.router_enabled,
-        router_simple_model=new_agent.router_simple_model,
-        router_complex_model=new_agent.router_complex_model,
-        handoff_enabled=new_agent.handoff_enabled,
-        response_translation_enabled=new_agent.response_translation_enabled,
-        response_translation_fallback_lang=new_agent.response_translation_fallback_lang or "portuguese",
-        top_k=new_agent.top_k,
-        presence_penalty=new_agent.presence_penalty,
-        frequency_penalty=new_agent.frequency_penalty,
-        safety_settings=new_agent.safety_settings,
-        model_settings=json.loads(new_agent.model_settings) if new_agent.model_settings else {}
-    )
+    return _agent_to_schema(new_agent)
 
 @app.post("/agents/{agent_id}/drafts", response_model=PromptDraft, dependencies=[Depends(verify_api_key), Depends(check_role([UserRole.SUPERADMIN.value, UserRole.ADMIN.value]))])
 async def create_agent_draft(agent_id: int, draft: PromptDraft, db: AsyncSession = Depends(get_db)):
@@ -3453,19 +3384,65 @@ async def execute_agent(
 
     if session_id: ctx["session_id"] = session_id
 
+    # =========================================================================
+    # Feature 012: Router Agent Interception
+    # =========================================================================
+    router_debug = None
+    if getattr(db_config, "agent_type", "standard") == "router":
+        from services.router_service import evaluate_router_agent
+        start_router = time.perf_counter()
+        route_result = await evaluate_router_agent(agent_config, request.message, history, db)
+        router_debug = route_result
+        
+        dest_id = route_result.get("selected_agent_id")
+        if dest_id:
+            # Load the destination agent config
+            result_dest = await db.execute(
+                select(AgentConfigModel)
+                .where(AgentConfigModel.id == dest_id)
+                .options(
+                    selectinload(AgentConfigModel.tools),
+                    selectinload(AgentConfigModel.knowledge_bases),
+                    selectinload(AgentConfigModel.destinations).selectinload(RouterAgentDestinationModel.destination_agent),
+                )
+            )
+            dest_config_db = result_dest.scalars().first()
+            if dest_config_db:
+                # Swap the agent configuration
+                agent_config = _agent_to_schema(dest_config_db)
+                
+                # Swap the tools
+                tools = []
+                model_info = MODEL_INFO.get(dest_config_db.model)
+                if model_info and model_info.get("supports_tools"):
+                    tools = dest_config_db.tools
+                
+                # Inject delegation marker into history
+                history.append({
+                    "role": "system",
+                    "content": f"[ROUTER DELEGATION] O lead foi roteado para você. Motivo da classificação: {route_result.get('reasoning')}"
+                })
+                logger.info(f"Router Agent (ID {db_config.id}) delegated to Destination Agent (ID {dest_id}) in {(time.perf_counter()-start_router)*1000:.0f}ms")
+            else:
+                logger.warning(f"Router selected destination {dest_id}, but it was not found. Proceeding with fallback behavior.")
+    # =========================================================================
+
     # Processa a mensagem
     start_perf = time.perf_counter()
     result = await process_message(request.message, history, agent_config, tools, ctx, db=db)
     end_perf = time.perf_counter()
     response_time_ms = int((end_perf - start_perf) * 1000)
 
-    # Garante que context_variables sempre aparece no debug (independente do caminho de retorno)
+    # Garante que context_variables e routing sempre aparecem no debug
     _filtered_ctx = {k: v for k, v in ctx.items() if k not in INTERNAL_CTX_KEYS}
-    if _filtered_ctx:
-        if result.get("debug") is None:
-            result["debug"] = {}
-        if "context_variables" not in result["debug"]:
-            result["debug"]["context_variables"] = _filtered_ctx
+    if result.get("debug") is None:
+        result["debug"] = {}
+        
+    if _filtered_ctx and "context_variables" not in result["debug"]:
+        result["debug"]["context_variables"] = _filtered_ctx
+        
+    if router_debug:
+        result["debug"]["routing"] = router_debug
 
     content = result["content"]
     

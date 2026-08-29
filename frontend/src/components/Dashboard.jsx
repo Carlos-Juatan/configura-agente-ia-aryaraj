@@ -43,6 +43,11 @@ function AgentCard({ agent, kbList, onDelete, onDuplicate, onPause, onShare }) {
                 <p className="description">{agent.description || "Sem descrição definida."}</p>
 
                 <div className="tech-stack">
+                    {agent.agent_type === 'router' && (
+                        <span className="tech-badge router" style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
+                            🔀 Roteador
+                        </span>
+                    )}
                     <span className="tech-badge model">
                         {agent.router_enabled && agent.router_complex_model
                             ? agent.router_complex_model
@@ -211,11 +216,18 @@ function Dashboard() {
     const handlePause = async (agent) => {
         try {
             const res = await api.post(`/agents/${agent.id}/toggle`);
+            if (!res.ok) {
+                const errorData = await res.json().catch(() => null);
+                const msg = errorData?.detail || 'Erro ao alterar status do agente.';
+                showToast(typeof msg === 'string' ? msg : msg[0]?.msg || 'Erro ao alterar status', 'error');
+                return;
+            }
             const updated = await res.json();
             setAgents(prev => prev.map(a => a.id === updated.id ? updated : a));
             refreshStats();
         } catch (e) {
             console.error("Erro ao pausar", e);
+            showToast('Erro ao alterar status do agente.', 'error');
         }
     };
 

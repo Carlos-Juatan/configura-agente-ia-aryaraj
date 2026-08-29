@@ -8,8 +8,13 @@ const AgentHistory = ({ agentId }) => {
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(true);
     const [expandedSessions, setExpandedSessions] = useState({});
+    const [expandedDebug, setExpandedDebug] = useState({});
     const [summaries, setSummaries] = useState({});
     const [loadingSummary, setLoadingSummary] = useState({});
+
+    const toggleDebug = (logId) => {
+        setExpandedDebug(prev => ({ ...prev, [logId]: !prev[logId] }));
+    };
 
     useEffect(() => {
         if (!agentId || agentId === 'new') {
@@ -293,7 +298,47 @@ const AgentHistory = ({ agentId }) => {
                                         <div style={{ display: 'flex', gap: '10px', marginTop: '6px', fontSize: '0.65rem', color: 'var(--text-secondary)', opacity: 0.7 }}>
                                             <span>📦 {log.input_tokens + log.output_tokens} tok</span>
                                             <span>💰 R$ {log.cost_brl.toFixed(4)}</span>
+                                            {log.debug_info && (
+                                                <span 
+                                                    style={{ cursor: 'pointer', color: '#818cf8', fontWeight: 'bold' }}
+                                                    onClick={() => toggleDebug(log.id)}
+                                                >
+                                                    {expandedDebug[log.id] ? '🔍 Ocultar Raio-X' : '🔍 Ver Raio-X'}
+                                                </span>
+                                            )}
                                         </div>
+                                        {expandedDebug[log.id] && log.debug_info && (() => {
+                                            let debug = {};
+                                            try {
+                                                debug = typeof log.debug_info === 'string' ? JSON.parse(log.debug_info) : log.debug_info;
+                                            } catch(e) {}
+                                            return (
+                                                <div style={{ marginTop: '10px', background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', fontSize: '0.8rem' }}>
+                                                    <h5 style={{ margin: '0 0 10px 0', color: '#fbbf24' }}>🧠 Raio-X da Execução</h5>
+                                                    {debug.routing && (
+                                                        <div style={{ marginBottom: '8px', borderLeft: '3px solid #fcd34d', paddingLeft: '8px' }}>
+                                                            <strong style={{ color: '#fcd34d' }}>🔀 Roteador Delegou Conversa</strong>
+                                                            <div style={{ color: '#e2e8f0', marginTop: '4px' }}><strong>Intenção:</strong> {debug.routing.intent}</div>
+                                                            <div style={{ color: '#e2e8f0' }}><strong>Justificativa:</strong> {debug.routing.justification}</div>
+                                                            <div style={{ color: '#e2e8f0' }}><strong>Destino:</strong> {debug.routing.destination_agent_id ? `Agente #${debug.routing.destination_agent_id}` : 'Fallback Padrão'}</div>
+                                                        </div>
+                                                    )}
+                                                    {debug.tool_calls && debug.tool_calls.length > 0 && (
+                                                        <div style={{ marginBottom: '8px', borderLeft: '3px solid #818cf8', paddingLeft: '8px' }}>
+                                                            <strong style={{ color: '#818cf8' }}>🛠️ Ferramentas ({debug.tool_calls.length})</strong>
+                                                        </div>
+                                                    )}
+                                                    {debug.rag_items && debug.rag_items.length > 0 && (
+                                                        <div style={{ marginBottom: '8px', borderLeft: '3px solid #10b981', paddingLeft: '8px' }}>
+                                                            <strong style={{ color: '#4ade80' }}>📚 RAG Ativo ({debug.rag_items.length} itens consultados)</strong>
+                                                        </div>
+                                                    )}
+                                                    {!debug.routing && !debug.tool_calls && (!debug.rag_items || debug.rag_items.length === 0) && (
+                                                        <span style={{ color: '#94a3b8' }}>Nenhuma operação avançada executada (Roteamento, RAG ou Ferramentas).</span>
+                                                    )}
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                 </div>
                             ))}

@@ -92,6 +92,22 @@ class KnowledgeItemModel(Base):
     knowledge_base = relationship("KnowledgeBaseModel", back_populates="items")
     children = relationship("KnowledgeItemModel", backref="parent", remote_side=[id])
 
+class RouterAgentDestinationModel(Base):
+    """Association entity linking a Router Agent to its Destination Agents."""
+    __tablename__ = "router_agent_destinations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    router_agent_id = Column(Integer, ForeignKey("agent_config.id", ondelete="CASCADE"), nullable=False, index=True)
+    destination_agent_id = Column(Integer, ForeignKey("agent_config.id", ondelete="CASCADE"), nullable=False, index=True)
+    routing_instruction = Column(Text, nullable=True)  # Criteria / rule for this destination
+    priority = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    router_agent = relationship("AgentConfigModel", foreign_keys=[router_agent_id], back_populates="destinations")
+    destination_agent = relationship("AgentConfigModel", foreign_keys=[destination_agent_id])
+
+
 class AgentConfigModel(Base):
     __tablename__ = "agent_config"
 
@@ -100,6 +116,12 @@ class AgentConfigModel(Base):
     description = Column(Text, nullable=True) # Descrição do agente
     model = Column(String, default="gpt-5.2")
     fallback_model = Column(String, nullable=True)  # Modelo de backup
+
+    # --- Router Agent Fields (Feature 012) ---
+    agent_type = Column(String(32), nullable=False, default="standard", index=True)  # "standard" | "router"
+    router_prompt = Column(Text, nullable=True)  # Custom prompt for lead message classification
+    fallback_agent_id = Column(Integer, ForeignKey("agent_config.id", ondelete="SET NULL"), nullable=True)
+    # -----------------------------------------
     temperature = Column(Float, default=1.0)  # Controle de criatividade (0-2)
     top_p = Column(Float, default=1.0)  # Controle de diversidade (0-1)
     top_k = Column(Integer, default=40)
@@ -165,7 +187,23 @@ class AgentConfigModel(Base):
     
     # Relacionamento com rascunhos de prompt
     prompt_drafts = relationship("PromptDraftModel", back_populates="agent", cascade="all, delete-orphan")
-    
+
+    # --- Router Agent Relationships (Feature 012) ---
+    destinations = relationship(
+        "RouterAgentDestinationModel",
+        foreign_keys="[RouterAgentDestinationModel.router_agent_id]",
+        back_populates="router_agent",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+    fallback_agent = relationship(
+        "AgentConfigModel",
+        remote_side="AgentConfigModel.id",
+        foreign_keys="[AgentConfigModel.fallback_agent_id]",
+        uselist=False
+    )
+    # -------------------------------------------------
+
     handoff_enabled = Column(Boolean, default=False) # Permite que este agente use a ferramenta de handoff
     model_settings = Column(Text, default="{}") # JSON store for per-slot configurations (temperature, top_p, etc)
 

@@ -213,6 +213,18 @@ class KnowledgeItem(BaseModel):
     class Config:
         from_attributes = True
 
+
+class RouterDestinationSchema(BaseModel):
+    """Schema for a single destination agent link from a Router Agent."""
+    id: int | None = None
+    destination_agent_id: int
+    destination_agent_name: str | None = None
+    routing_instruction: str | None = None
+    priority: int = 0
+
+    class Config:
+        from_attributes = True
+
 class KnowledgeBase(BaseModel):
     id: int | None = None
     name: str = "Nova Base"
@@ -255,6 +267,13 @@ class AgentConfig(BaseModel):
     rag_parent_expansion_enabled: bool = True
     tool_ids: list[int] = [] # Selected tools
     simulated_time: str | None = None # HH:MM for time override
+
+    # --- Router Agent Fields (Feature 012) ---
+    agent_type: str = "standard"  # "standard" | "router"
+    router_prompt: str | None = None  # Custom routing prompt
+    fallback_agent_id: int | None = None  # Default fallback destination ID
+    destinations: list[RouterDestinationSchema] = []  # Destination agent links
+    # -----------------------------------------
     
     # Security Guardrails
     security_competitor_blacklist: str | None = None
